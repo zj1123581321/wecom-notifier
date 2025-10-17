@@ -33,27 +33,26 @@ class RateLimiter:
 
         这个方法是线程安全的
         """
-        with self.lock:
-            now = time.time()
+        while True:
+            with self.lock:
+                now = time.time()
 
-            # 清理过期的时间戳
-            self._clean_expired_timestamps(now)
+                # 清理过期的时间戳
+                self._clean_expired_timestamps(now)
 
-            # 如果达到限制，等待直到可以发送
-            if len(self.timestamps) >= self.max_count:
-                # 计算需要等待的时间
+                # 如果还有配额，直接使用
+                if len(self.timestamps) < self.max_count:
+                    self.timestamps.append(now)
+                    return
+
+                # 达到限制，计算需要等待的时间
                 oldest_timestamp = self.timestamps[0]
                 sleep_time = self.time_window - (now - oldest_timestamp) + 0.1  # 额外加0.1秒确保安全
 
-                if sleep_time > 0:
-                    # 释放锁，等待，然后重新尝试
-                    self.lock.release()
-                    time.sleep(sleep_time)
-                    self.lock.acquire()
-                    return self.acquire()  # 递归重试
-
-            # 记录本次时间戳
-            self.timestamps.append(time.time())
+            # 在锁外等待（避免阻塞其他线程）
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            # 循环重试
 
     def _clean_expired_timestamps(self, now: float) -> None:
         """

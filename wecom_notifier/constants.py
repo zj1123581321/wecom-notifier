@@ -13,7 +13,7 @@ DEFAULT_RATE_LIMIT = 20  # 每分钟最大消息数
 DEFAULT_TIME_WINDOW = 60  # 时间窗口（秒）
 
 # 分段设置
-MAX_BYTES_PER_MESSAGE = 4096  # 每条消息最大字节数
+MAX_BYTES_PER_MESSAGE = 3800  # 每条消息最大字节数（留安全余量，实际限制4096）
 DEFAULT_SEGMENT_INTERVAL = 1000  # 默认分段间隔（毫秒）
 
 # 重试设置

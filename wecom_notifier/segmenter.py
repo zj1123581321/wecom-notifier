@@ -190,7 +190,13 @@ class MessageSegmenter:
 
         segments = []
         current_rows = []
-        available_bytes = self.max_bytes - header_bytes - len('\n'.encode('utf-8'))
+
+        # 预留续页提示的空间
+        from .constants import SEGMENT_CONTINUE_PREFIX, SEGMENT_CONTINUE_SUFFIX
+        reserved_bytes = len(SEGMENT_CONTINUE_PREFIX.encode('utf-8')) + len(SEGMENT_CONTINUE_SUFFIX.encode('utf-8'))
+
+        # 可用字节数 = 总限制 - 表头 - 换行符 - 续页提示
+        available_bytes = self.max_bytes - header_bytes - len('\n'.encode('utf-8')) - reserved_bytes
 
         for row in data_rows:
             row_bytes = len(row.encode('utf-8')) + len('\n'.encode('utf-8'))

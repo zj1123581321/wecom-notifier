@@ -1,5 +1,6 @@
 # 项目自己
 doc/cc-history
+logs
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

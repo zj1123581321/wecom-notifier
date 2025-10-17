@@ -51,12 +51,12 @@ class WebhookManager:
         # 结果字典，用于存储SendResult
         self.results = {}
 
+        # 停止标志（必须在启动线程前初始化）
+        self._stop_flag = threading.Event()
+
         # 工作线程
         self.worker_thread = threading.Thread(target=self._process_queue, daemon=True)
         self.worker_thread.start()
-
-        # 停止标志
-        self._stop_flag = threading.Event()
 
         self.logger.info(f"WebhookManager initialized for {webhook_url}")
 
