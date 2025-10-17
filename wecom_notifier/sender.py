@@ -1,0 +1,270 @@
+"""
+HTTP发送器 - 负责实际的HTTP请求
+"""
+import base64
+import hashlib
+import logging
+import time
+from typing import Dict, Any, Tuple, Optional
+import requests
+
+from .exceptions import (
+    NetworkError,
+    WebhookInvalidError,
+    RateLimitError,
+    WeComError,
+    InvalidParameterError
+)
+from .constants import (
+    DEFAULT_TIMEOUT,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_DELAY,
+    DEFAULT_BACKOFF_FACTOR,
+    ERRCODE_SUCCESS,
+    ERRCODE_WEBHOOK_INVALID,
+    ERRCODE_RATE_LIMIT,
+    MSG_TYPE_TEXT,
+    MSG_TYPE_MARKDOWN_V2,
+    MSG_TYPE_IMAGE
+)
+
+
+class RetryConfig:
+    """重试配置"""
+
+    def __init__(
+            self,
+            max_retries: int = DEFAULT_MAX_RETRIES,
+            retry_delay: float = DEFAULT_RETRY_DELAY,
+            backoff_factor: float = DEFAULT_BACKOFF_FACTOR
+    ):
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.backoff_factor = backoff_factor
+
+
+class Sender:
+    """HTTP发送器"""
+
+    def __init__(
+            self,
+            retry_config: Optional[RetryConfig] = None,
+            timeout: int = DEFAULT_TIMEOUT,
+            logger: Optional[logging.Logger] = None
+    ):
+        """
+        初始化发送器
+
+        Args:
+            retry_config: 重试配置
+            timeout: HTTP请求超时时间
+            logger: 日志记录器
+        """
+        self.retry_config = retry_config or RetryConfig()
+        self.timeout = timeout
+        self.logger = logger or logging.getLogger(__name__)
+
+    def send_text(
+            self,
+            webhook_url: str,
+            content: str,
+            mentioned_list: Optional[list] = None,
+            mentioned_mobile_list: Optional[list] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        发送文本消息
+
+        Args:
+            webhook_url: Webhook地址
+            content: 文本内容
+            mentioned_list: @的用户列表
+            mentioned_mobile_list: @的手机号列表
+
+        Returns:
+            Tuple[bool, Optional[str]]: (是否成功, 错误信息)
+        """
+        data = {
+            "msgtype": MSG_TYPE_TEXT,
+            "text": {
+                "content": content
+            }
+        }
+
+        if mentioned_list:
+            data["text"]["mentioned_list"] = mentioned_list
+        if mentioned_mobile_list:
+            data["text"]["mentioned_mobile_list"] = mentioned_mobile_list
+
+        return self._send_request(webhook_url, data)
+
+    def send_markdown(
+            self,
+            webhook_url: str,
+            content: str
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        发送Markdown v2消息
+
+        Args:
+            webhook_url: Webhook地址
+            content: Markdown内容
+
+        Returns:
+            Tuple[bool, Optional[str]]: (是否成功, 错误信息)
+        """
+        data = {
+            "msgtype": MSG_TYPE_MARKDOWN_V2,
+            "markdown_v2": {
+                "content": content
+            }
+        }
+
+        return self._send_request(webhook_url, data)
+
+    def send_image(
+            self,
+            webhook_url: str,
+            image_base64: str,
+            image_md5: str
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        发送图片消息
+
+        Args:
+            webhook_url: Webhook地址
+            image_base64: 图片base64编码
+            image_md5: 图片MD5值
+
+        Returns:
+            Tuple[bool, Optional[str]]: (是否成功, 错误信息)
+        """
+        data = {
+            "msgtype": MSG_TYPE_IMAGE,
+            "image": {
+                "base64": image_base64,
+                "md5": image_md5
+            }
+        }
+
+        return self._send_request(webhook_url, data)
+
+    def send_mention_all(self, webhook_url: str) -> Tuple[bool, Optional[str]]:
+        """
+        发送@all消息（用于markdown_v2和image的workaround）
+
+        Args:
+            webhook_url: Webhook地址
+
+        Returns:
+            Tuple[bool, Optional[str]]: (是否成功, 错误信息)
+        """
+        return self.send_text(webhook_url, "", mentioned_list=["@all"])
+
+    def _send_request(self, webhook_url: str, data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+        """
+        发送HTTP请求（带重试）
+
+        Args:
+            webhook_url: Webhook地址
+            data: 请求数据
+
+        Returns:
+            Tuple[bool, Optional[str]]: (是否成功, 错误信息)
+        """
+        last_error = None
+
+        for attempt in range(self.retry_config.max_retries + 1):
+            try:
+                self.logger.debug(f"Sending request to {webhook_url} (attempt {attempt + 1})")
+
+                response = requests.post(
+                    webhook_url,
+                    json=data,
+                    timeout=self.timeout,
+                    headers={"Content-Type": "application/json"}
+                )
+
+                # 企微API返回格式: {"errcode": 0, "errmsg": "ok"}
+                result = response.json()
+
+                errcode = result.get('errcode')
+                errmsg = result.get('errmsg', 'Unknown error')
+
+                if errcode == ERRCODE_SUCCESS:
+                    self.logger.info(f"Message sent successfully")
+                    return True, None
+
+                # 处理不同错误码
+                if errcode == ERRCODE_WEBHOOK_INVALID:
+                    error = WebhookInvalidError(f"Invalid webhook: {errmsg}")
+                    self.logger.error(f"Webhook invalid: {errmsg}")
+                    return False, str(error)
+
+                elif errcode == ERRCODE_RATE_LIMIT:
+                    error = RateLimitError(f"Rate limit exceeded: {errmsg}")
+                    self.logger.warning(f"Rate limit exceeded: {errmsg}")
+                    last_error = error
+
+                else:
+                    error = WeComError(f"API error {errcode}: {errmsg}")
+                    self.logger.error(f"API error: {errcode} - {errmsg}")
+                    return False, str(error)
+
+            except requests.Timeout as e:
+                last_error = NetworkError(f"Request timeout: {e}")
+                self.logger.warning(f"Request timeout (attempt {attempt + 1}): {e}")
+
+            except requests.ConnectionError as e:
+                last_error = NetworkError(f"Connection failed: {e}")
+                self.logger.warning(f"Connection failed (attempt {attempt + 1}): {e}")
+
+            except Exception as e:
+                last_error = WeComError(f"Unexpected error: {e}")
+                self.logger.error(f"Unexpected error: {e}", exc_info=True)
+                return False, str(last_error)
+
+            # 判断是否需要重试
+            if not isinstance(last_error, (NetworkError, RateLimitError)):
+                break
+
+            # 重试延迟
+            if attempt < self.retry_config.max_retries:
+                delay = self.retry_config.retry_delay * (self.retry_config.backoff_factor ** attempt)
+                self.logger.info(f"Retrying in {delay} seconds...")
+                time.sleep(delay)
+
+        # 所有重试都失败
+        self.logger.error(f"All retries failed. Last error: {last_error}")
+        return False, str(last_error)
+
+    @staticmethod
+    def prepare_image(image_path: Optional[str] = None, image_base64: Optional[str] = None) -> Tuple[str, str]:
+        """
+        准备图片数据（base64和MD5）
+
+        Args:
+            image_path: 图片文件路径
+            image_base64: 图片base64编码（二选一）
+
+        Returns:
+            Tuple[str, str]: (base64编码, MD5值)
+
+        Raises:
+            InvalidParameterError: 参数错误
+        """
+        if image_path:
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+        elif image_base64:
+            try:
+                image_data = base64.b64decode(image_base64)
+            except Exception as e:
+                raise InvalidParameterError(f"Invalid base64 data: {e}")
+        else:
+            raise InvalidParameterError("Either image_path or image_base64 must be provided")
+
+        # 计算MD5
+        md5 = hashlib.md5(image_data).hexdigest()
+
+        return image_base64, md5
