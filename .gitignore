@@ -1,6 +1,7 @@
 # 项目自己
 doc/cc-history
 logs
+AGENTS.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

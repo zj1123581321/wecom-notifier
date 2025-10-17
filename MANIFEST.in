@@ -1,0 +1,22 @@
+# 包含文档文件
+include README.md
+include CHANGELOG.md
+include requirements.txt
+
+# 包含使用指南
+include USAGE_GUIDE.md
+
+# 排除测试文件
+exclude tests/*
+recursive-exclude tests *
+
+# 排除日志文件
+exclude logs/*
+recursive-exclude logs *
+
+# 排除构建和缓存文件
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *$py.class
+global-exclude *.so
+global-exclude .DS_Store
