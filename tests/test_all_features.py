@@ -8,7 +8,7 @@ from wecom_notifier import WeComNotifier
 
 # 测试用的两个Webhook地址
 WEBHOOK_1 = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=dd2cc41e-0388-4b04-9385-71efed5ea76c"
-WEBHOOK_2 = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=01ae2f25-ec29-4256-9fc1-22450f88add7"
+WEBHOOK_2 = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=f1fa66dd-a1b0-4893-af75-5dab9d993182"
 
 
 def print_test_header(test_name):
