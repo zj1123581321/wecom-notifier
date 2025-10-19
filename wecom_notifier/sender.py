@@ -23,6 +23,8 @@ from .constants import (
     ERRCODE_SUCCESS,
     ERRCODE_WEBHOOK_INVALID,
     ERRCODE_RATE_LIMIT,
+    RATE_LIMIT_MAX_RETRIES,
+    RATE_LIMIT_WAIT_TIME,
     MSG_TYPE_TEXT,
     MSG_TYPE_MARKDOWN_V2,
     MSG_TYPE_IMAGE
@@ -162,7 +164,12 @@ class Sender:
 
     def _send_request(self, webhook_url: str, data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """
-        发送HTTP请求（带重试）
+        发送HTTP请求（带智能重试）
+
+        重试策略：
+        1. 网络错误（超时、连接失败）：指数退避，最多重试3次
+        2. 服务端频控（企微返回45009）：等待65秒，最多重试5次
+        3. 其他错误（webhook无效等）：立即失败
 
         Args:
             webhook_url: Webhook地址
@@ -171,11 +178,14 @@ class Sender:
         Returns:
             Tuple[bool, Optional[str]]: (是否成功, 错误信息)
         """
+        network_retry_count = 0  # 网络错误重试计数
+        rate_limit_retry_count = 0  # 频控重试计数
         last_error = None
 
-        for attempt in range(self.retry_config.max_retries + 1):
+        while True:
             try:
-                self.logger.debug(f"Sending request to {webhook_url} (attempt {attempt + 1})")
+                attempt_desc = f"network_retry={network_retry_count}, rate_limit_retry={rate_limit_retry_count}"
+                self.logger.debug(f"Sending request to {webhook_url} ({attempt_desc})")
 
                 response = requests.post(
                     webhook_url,
@@ -201,9 +211,27 @@ class Sender:
                     return False, str(error)
 
                 elif errcode == ERRCODE_RATE_LIMIT:
+                    # 服务端频控：可能是其他程序触发的，需要等待足够长的时间
                     error = RateLimitError(f"Rate limit exceeded: {errmsg}")
-                    self.logger.warning(f"Rate limit exceeded: {errmsg}")
-                    last_error = error
+                    self.logger.warning(f"Server-side rate limit exceeded: {errmsg}")
+
+                    if rate_limit_retry_count < RATE_LIMIT_MAX_RETRIES:
+                        rate_limit_retry_count += 1
+                        self.logger.warning(
+                            f"Webhook may have been rate-limited by other programs. "
+                            f"Waiting {RATE_LIMIT_WAIT_TIME}s before retry "
+                            f"(rate_limit_retry {rate_limit_retry_count}/{RATE_LIMIT_MAX_RETRIES})"
+                        )
+                        time.sleep(RATE_LIMIT_WAIT_TIME)
+                        # 重置网络重试计数（新的一轮尝试）
+                        network_retry_count = 0
+                        continue
+                    else:
+                        self.logger.error(
+                            f"Rate limit retry exhausted ({RATE_LIMIT_MAX_RETRIES} times, "
+                            f"waited {RATE_LIMIT_MAX_RETRIES * RATE_LIMIT_WAIT_TIME}s total)"
+                        )
+                        return False, str(error)
 
                 else:
                     error = WeComError(f"API error {errcode}: {errmsg}")
@@ -212,30 +240,35 @@ class Sender:
 
             except requests.Timeout as e:
                 last_error = NetworkError(f"Request timeout: {e}")
-                self.logger.warning(f"Request timeout (attempt {attempt + 1}): {e}")
+                self.logger.warning(f"Request timeout: {e}")
 
             except requests.ConnectionError as e:
                 last_error = NetworkError(f"Connection failed: {e}")
-                self.logger.warning(f"Connection failed (attempt {attempt + 1}): {e}")
+                self.logger.warning(f"Connection failed: {e}")
 
             except Exception as e:
                 last_error = WeComError(f"Unexpected error: {e}")
                 self.logger.error(f"Unexpected error: {e}", exc_info=True)
                 return False, str(last_error)
 
-            # 判断是否需要重试
-            if not isinstance(last_error, (NetworkError, RateLimitError)):
-                break
+            # 处理网络错误重试
+            if isinstance(last_error, NetworkError):
+                if network_retry_count < self.retry_config.max_retries:
+                    network_retry_count += 1
+                    delay = self.retry_config.retry_delay * (self.retry_config.backoff_factor ** (network_retry_count - 1))
+                    self.logger.info(
+                        f"Network error, retrying in {delay}s "
+                        f"(network_retry {network_retry_count}/{self.retry_config.max_retries})"
+                    )
+                    time.sleep(delay)
+                    continue
+                else:
+                    self.logger.error(f"Network retry exhausted ({self.retry_config.max_retries} times)")
+                    return False, str(last_error)
 
-            # 重试延迟
-            if attempt < self.retry_config.max_retries:
-                delay = self.retry_config.retry_delay * (self.retry_config.backoff_factor ** attempt)
-                self.logger.info(f"Retrying in {delay} seconds...")
-                time.sleep(delay)
-
-        # 所有重试都失败
-        self.logger.error(f"All retries failed. Last error: {last_error}")
-        return False, str(last_error)
+            # 其他未处理的错误
+            self.logger.error(f"Unhandled error: {last_error}")
+            return False, str(last_error)
 
     @staticmethod
     def prepare_image(image_path: Optional[str] = None, image_base64: Optional[str] = None) -> Tuple[str, str]:

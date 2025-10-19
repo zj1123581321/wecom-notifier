@@ -17,9 +17,13 @@ MAX_BYTES_PER_MESSAGE = 3800  # 每条消息最大字节数（留安全余量，
 DEFAULT_SEGMENT_INTERVAL = 1000  # 默认分段间隔（毫秒）
 
 # 重试设置
-DEFAULT_MAX_RETRIES = 3  # 默认最大重试次数
+DEFAULT_MAX_RETRIES = 3  # 默认最大重试次数（针对网络错误）
 DEFAULT_RETRY_DELAY = 2.0  # 默认重试延迟（秒）
 DEFAULT_BACKOFF_FACTOR = 2.0  # 指数退避因子
+
+# 服务端频控重试设置
+RATE_LIMIT_MAX_RETRIES = 5  # 服务端频控最大重试次数
+RATE_LIMIT_WAIT_TIME = 65  # 服务端频控等待时间（秒），略大于60秒以确保安全
 
 # HTTP设置
 DEFAULT_TIMEOUT = 10  # HTTP请求超时（秒）
