@@ -1,5 +1,13 @@
 # 企业微信通知器使用指南
 
+## 📌 重要提示
+
+> **⚠️ 使用前必读**
+>
+> - ✅ **推荐**：全局使用单个 `WeComNotifier` 实例
+> - ❌ **避免**：频繁创建多个实例（会导致频控失效、资源浪费）
+> - 📖 详见下方"最佳实践"章节
+
 ## 🎯 快速开始
 
 ### 安装
@@ -332,6 +340,249 @@ def send_batch_notifications(user_list):
     print(f"已提交{len(user_list)}条通知到队列")
 ```
 
+## 💡 最佳实践
+
+### ✅ 推荐：使用单例模式
+
+**为什么需要单例？**
+
+每个 `WeComNotifier` 实例会为每个 webhook 创建独立的：
+- 工作线程（处理消息队列）
+- 频率控制器（20条/分钟）
+
+如果创建多个实例，它们无法协调频率限制，容易触发服务端频控。
+
+**正确做法：全局单例**
+
+```python
+# config.py 或应用初始化文件
+from wecom_notifier import WeComNotifier
+
+# 创建全局实例
+NOTIFIER = WeComNotifier(
+    max_retries=5,
+    log_level="INFO"
+)
+
+# 如果有多个 webhook，也只需一个实例
+WEBHOOKS = {
+    "dev": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=DEV-KEY",
+    "prod": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=PROD-KEY"
+}
+```
+
+```python
+# 在其他模块中使用
+from config import NOTIFIER, WEBHOOKS
+
+def send_notification(message):
+    """发送通知到开发群"""
+    NOTIFIER.send_text(
+        webhook_url=WEBHOOKS["dev"],
+        content=message
+    )
+
+def send_alert(message):
+    """发送告警到生产群"""
+    NOTIFIER.send_text(
+        webhook_url=WEBHOOKS["prod"],
+        content=message,
+        mentioned_list=["@all"]
+    )
+```
+
+**优点**：
+- ✅ 单个实例管理所有 webhook，资源高效
+- ✅ 每个 webhook 独立的队列和频控，互不影响
+- ✅ 避免多实例竞争导致的频控问题
+
+### ❌ 错误：频繁创建实例
+
+**错误示例1：每次调用都创建**
+```python
+# ❌ 不要这样做
+def send_message(msg):
+    notifier = WeComNotifier()  # 每次都创建新实例！
+    notifier.send_text(WEBHOOK_URL, msg)
+    # 实例销毁，线程也会停止
+```
+
+**问题**：
+- 每次调用创建新线程，浪费资源
+- 实例销毁时线程也停止，可能丢失未发送的消息
+- 频控器无法累积，无法有效限速
+
+**错误示例2：多个实例发送同一个 webhook**
+```python
+# ❌ 不要这样做
+notifier1 = WeComNotifier()
+notifier2 = WeComNotifier()
+
+# 两个实例发送到同一个 webhook
+notifier1.send_text(WEBHOOK_URL, "消息1")  # 线程1处理
+notifier2.send_text(WEBHOOK_URL, "消息2")  # 线程2处理
+```
+
+**问题**：
+- 两个独立的工作线程并发发送，无法保证顺序
+- 两个独立的频控器，可能同时发送超过20条/分钟
+- 触发服务端频控（45009错误）
+
+### 🔄 使用上下文管理器（可选）
+
+如果只是临时使用，可以添加上下文管理器：
+
+```python
+class WeComNotifierContext:
+    """上下文管理器包装"""
+    def __init__(self, **kwargs):
+        self.notifier = WeComNotifier(**kwargs)
+
+    def __enter__(self):
+        return self.notifier
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.notifier.stop_all()
+        return False
+
+# 使用
+with WeComNotifierContext() as notifier:
+    notifier.send_text(WEBHOOK_URL, "消息1")
+    notifier.send_text(WEBHOOK_URL, "消息2")
+# 退出时自动清理资源
+```
+
+### 🧵 线程生命周期说明
+
+**工作线程何时启动？**
+```python
+notifier = WeComNotifier()  # 此时还没有线程
+
+# 第一次发送到某个 webhook 时，创建并启动工作线程
+notifier.send_text(WEBHOOK_URL_A, "消息")  # 为 WEBHOOK_URL_A 创建线程
+
+# 第一次发送到另一个 webhook 时，创建另一个工作线程
+notifier.send_text(WEBHOOK_URL_B, "消息")  # 为 WEBHOOK_URL_B 创建线程
+
+# 同一个 webhook 的后续消息，复用已有线程
+notifier.send_text(WEBHOOK_URL_A, "消息2")  # 复用 WEBHOOK_URL_A 的线程
+```
+
+**工作线程何时停止？**
+- 显式调用 `notifier.stop_all()`
+- `WeComNotifier` 实例被垃圾回收（`__del__`）
+- 主程序退出（daemon 线程自动终止）
+
+**关键点**：
+- 每个 webhook 只创建一次工作线程
+- 线程会持续运行，处理消息队列
+- 标记为 daemon，不会阻止程序退出
+
+### 📊 多实例问题示例
+
+**问题演示**：
+```python
+import threading
+
+# 创建3个实例
+notifier1 = WeComNotifier()
+notifier2 = WeComNotifier()
+notifier3 = WeComNotifier()
+
+# 查看线程数
+print(f"初始线程数: {threading.active_count()}")
+
+# 都向同一个 webhook 发送
+notifier1.send_text(WEBHOOK_URL, "消息1")  # 创建线程1
+notifier2.send_text(WEBHOOK_URL, "消息2")  # 创建线程2
+notifier3.send_text(WEBHOOK_URL, "消息3")  # 创建线程3
+
+print(f"当前线程数: {threading.active_count()}")
+# 输出：当前线程数: 4（主线程 + 3个工作线程）
+```
+
+**正确做法**：
+```python
+# 只创建一个实例
+notifier = WeComNotifier()
+
+# 所有消息共享同一个队列和线程
+notifier.send_text(WEBHOOK_URL, "消息1")
+notifier.send_text(WEBHOOK_URL, "消息2")
+notifier.send_text(WEBHOOK_URL, "消息3")
+
+print(f"当前线程数: {threading.active_count()}")
+# 输出：当前线程数: 2（主线程 + 1个工作线程）
+```
+
+### 🎯 实际项目集成示例
+
+**Flask 应用**：
+```python
+# app/__init__.py
+from flask import Flask
+from wecom_notifier import WeComNotifier
+
+# 全局实例
+notifier = WeComNotifier()
+
+def create_app():
+    app = Flask(__name__)
+    # ... 其他配置
+    return app
+
+# app/tasks.py
+from app import notifier
+from config import WEBHOOK_URL
+
+def send_task_notification(task_id, status):
+    notifier.send_text(
+        webhook_url=WEBHOOK_URL,
+        content=f"任务 {task_id} {status}"
+    )
+```
+
+**Django 应用**：
+```python
+# myproject/settings.py
+from wecom_notifier import WeComNotifier
+
+WECOM_NOTIFIER = WeComNotifier()
+WECOM_WEBHOOK = os.getenv("WECOM_WEBHOOK_URL")
+
+# myapp/tasks.py (Celery任务)
+from django.conf import settings
+
+def send_notification(message):
+    settings.WECOM_NOTIFIER.send_text(
+        webhook_url=settings.WECOM_WEBHOOK,
+        content=message
+    )
+```
+
+**通用脚本**：
+```python
+# utils/notifier.py
+from wecom_notifier import WeComNotifier
+import os
+
+# 模块级单例
+_notifier = None
+
+def get_notifier():
+    """获取全局 notifier 实例"""
+    global _notifier
+    if _notifier is None:
+        _notifier = WeComNotifier()
+    return _notifier
+
+# 使用
+from utils.notifier import get_notifier
+
+notifier = get_notifier()
+notifier.send_text(WEBHOOK_URL, "消息")
+```
+
 ## ⚠️ 注意事项
 
 ### 1. Webhook安全
@@ -344,22 +595,31 @@ import os
 WEBHOOK_URL = os.getenv("WECOM_WEBHOOK_URL")
 ```
 
-### 2. 频率限制
-- 企业微信限制：20条/分钟/webhook
-- 本项目自动处理，无需手动控制
-- 超过限制会自动等待
+### 2. 实例管理（重要！）
+- ✅ **推荐**：全局使用单个 `WeComNotifier` 实例
+- ❌ **避免**：频繁创建新实例或多实例并发
+- ❌ **避免**：在函数内部创建实例后立即销毁
+- 📖 详见上方"最佳实践"章节
 
-### 3. 消息长度
+### 3. 频率限制
+- 企业微信限制：20条/分钟/webhook
+- 本项目自动处理：
+  - **本地预防**：滑动窗口算法限速
+  - **服务端频控智能重试**：等待65秒后重试，最多5次
+- 即使 webhook 被其他程序触发频控，消息也会等待后成功发送
+- 详见 README.md 的"频率控制（双层保护）"章节
+
+### 4. 消息长度
 - 限制：4096字节/条
 - 本项目自动分段，无需手动处理
 - 分段间隔默认1000ms
 
-### 4. @all功能
+### 5. @all功能
 - `text`格式原生支持
 - `markdown_v2`和`image`需额外发送text消息
 - 本项目自动处理
 
-### 5. 错误处理
+### 6. 错误处理
 ```python
 result = notifier.send_text(...)
 

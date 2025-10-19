@@ -370,6 +370,35 @@ result.wait(timeout)     # 等待发送完成（异步模式）
 
 **核心设计理念**：不管webhook之前是什么状态（即使被其他程序触发频控），只要调用本组件，消息就一定会成功发送（最多等待约5分钟）。
 
+### Q: 可以创建多个 WeComNotifier 实例吗？
+
+**A:** 技术上可以，但**强烈不推荐**针对同一个 webhook 创建多个实例。
+
+**推荐做法（单例模式）**：
+```python
+# 在应用启动时创建一个全局实例
+notifier = WeComNotifier()
+
+# 在整个应用中复用这个实例
+notifier.send_text(webhook_url, "消息1")
+notifier.send_text(webhook_url, "消息2")
+```
+
+**不推荐做法**：
+```python
+# ❌ 每次都创建新实例
+def send_msg():
+    notifier = WeComNotifier()  # 会创建新的工作线程
+    notifier.send_text(webhook_url, "消息")
+```
+
+**原因**：
+- 每个实例会为每个 webhook 创建独立的工作线程和频控器
+- 多个实例无法协调频率限制，容易触发服务端频控
+- 造成资源浪费和消息顺序混乱
+
+详见 [USAGE_GUIDE.md](USAGE_GUIDE.md) 的最佳实践部分。
+
 ### Q: 支持哪些Python版本？
 
 **A:** Python 3.7+
