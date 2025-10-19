@@ -211,6 +211,8 @@ for result in results:
 
 ### 8. 多Webhook管理
 
+#### 方式1：向不同webhook发送不同消息
+
 ```python
 # 同一个notifier实例可以管理多个webhook
 webhooks = {
@@ -225,6 +227,135 @@ for name, url in webhooks.items():
         webhook_url=url,
         content=f"发送到{name}"
     )
+```
+
+#### 方式2：Webhook池 - 突破单webhook频率限制（新功能）
+
+**适用场景：批量数据推送、高频通知**
+
+当你需要每分钟发送超过20条消息时，可以使用webhook池来突破单webhook的频率限制。
+
+**原理**：
+- 单个webhook：20条/分钟
+- 3个webhook池：60条/分钟
+- 10个webhook池：200条/分钟
+- **理论无上限**（添加更多webhook即可）
+
+**使用方法**：
+
+```python
+from wecom_notifier import WeComNotifier
+
+notifier = WeComNotifier()
+
+# 在同一个群聊中添加多个机器人，获取多个webhook地址
+webhook_pool = [
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY1",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY2",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY3"
+]
+
+# 传入webhook列表，系统会自动负载均衡
+result = notifier.send_text(
+    webhook_url=webhook_pool,  # 传入列表而非字符串
+    content="很长的消息内容..." * 100,
+    async_send=False
+)
+
+# 检查结果
+if result.is_success():
+    print(f"发送成功！")
+    print(f"使用的webhooks数量: {len(result.used_webhooks)}")
+    print(f"消息分段数: {result.segment_count}")
+```
+
+**核心特性**：
+
+1. **智能负载均衡**（最空闲优先策略）
+   - 系统自动选择配额最多的webhook发送
+   - 确保负载均匀分布在所有webhook上
+
+2. **消息顺序保证**
+   - 单线程串行处理，严格保证消息顺序
+   - 同一消息的分段可以跨webhook发送
+   - 在群里阅读时顺序完全正确
+
+3. **自动容错恢复**
+   - webhook失败自动切换到其他可用webhook
+   - 失败的webhook进入冷却期（10秒、20秒、40秒递增）
+   - 冷却期过后自动恢复使用
+
+4. **全局频控共享**
+   - 同一webhook在单webhook和池模式下共享频率限制
+   - 避免冲突和重复计数
+
+**高频批量发送示例**：
+
+```python
+# 每分钟发送60条消息（3个webhook池）
+notifier = WeComNotifier()
+
+webhook_pool = [
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY1",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY2",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY3"
+]
+
+# 批量发送60条消息
+results = []
+for i in range(60):
+    result = notifier.send_text(
+        webhook_url=webhook_pool,
+        content=f"批量消息 {i+1}/60",
+        async_send=True
+    )
+    results.append(result)
+
+# 等待所有消息完成
+for result in results:
+    result.wait()
+
+# 统计
+success_count = sum(1 for r in results if r.is_success())
+print(f"成功: {success_count}/{len(results)}")
+```
+
+**性能对比**：
+
+| 模式 | Webhook数量 | 理论吞吐量 | 实际测试 |
+|------|------------|-----------|---------|
+| 单webhook | 1个 | 20条/分钟 | 20条/60秒 |
+| Webhook池 | 3个 | 60条/分钟 | 60条/92秒 |
+| Webhook池 | 10个 | 200条/分钟 | 未测试 |
+
+**注意事项**：
+
+1. **必须在同一个群聊中添加多个机器人**
+   - 确保消息发送到同一个聊天窗口
+   - 这样消息才能按顺序显示
+
+2. **向后兼容**
+   - 传入字符串：单webhook模式（原有行为）
+   - 传入列表：webhook池模式（新功能）
+
+3. **返回值扩展**
+   - `result.used_webhooks`: 实际使用的webhook URL列表
+   - `result.segment_count`: 分段数量
+
+**错误处理**：
+
+```python
+# 空列表会抛出异常
+try:
+    notifier.send_text(webhook_url=[], content="消息")
+except Exception as e:
+    print(f"错误: {e}")  # InvalidParameterError: webhook_url list cannot be empty
+
+# 无效类型会抛出异常
+try:
+    notifier.send_text(webhook_url=123, content="消息")
+except Exception as e:
+    print(f"错误: {e}")  # InvalidParameterError: webhook_url must be str or list
 ```
 
 ### 9. 自定义配置

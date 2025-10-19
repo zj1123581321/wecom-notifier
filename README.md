@@ -5,6 +5,7 @@
 ## ✨ 特性
 
 - 🚀 **多webhook并发管理** - 每个webhook独立队列和频率控制，互不影响
+- 🌟 **Webhook池负载均衡** - 突破单webhook频率限制，3个webhook可达60条/分钟，理论无上限
 - ⏱️ **双层频率控制** - 本地预防（20条/分钟）+ 服务端频控智能重试，确保消息必达
 - 🔐 **跨程序频控保护** - 即使webhook被其他程序触发频控，也能自动等待并重试（最多5分钟）
 - ✂️ **长文本自动分段** - 超过4096字节自动分段，支持Markdown语法保护
@@ -147,6 +148,8 @@ for result in results:
 
 ### 多Webhook管理
 
+#### 方式1：向不同群组发送
+
 ```python
 notifier = WeComNotifier()
 
@@ -162,6 +165,36 @@ for name, url in webhooks.items():
         content=f"发送到 {name}"
     )
 ```
+
+#### 方式2：Webhook池 - 突破频率限制（新功能）
+
+```python
+notifier = WeComNotifier()
+
+# 在同一个群聊中添加多个机器人，获取多个webhook地址
+webhook_pool = [
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY1",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY2",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY3"
+]
+
+# 传入列表，系统自动负载均衡
+result = notifier.send_text(
+    webhook_url=webhook_pool,  # 传入列表
+    content="批量数据推送..." * 100,
+    async_send=False
+)
+
+# 查看使用情况
+print(f"使用的webhooks: {len(result.used_webhooks)}")
+print(f"分段数: {result.segment_count}")
+```
+
+**性能提升**：
+- 单webhook：20条/分钟
+- 3个webhook池：60条/分钟
+- 10个webhook池：200条/分钟
+- **理论无上限**（添加更多webhook）
 
 ### 自定义配置
 
@@ -205,6 +238,8 @@ result = notifier.send_markdown(
 
 ## 🏗️ 架构设计
 
+### 单Webhook模式
+
 ```
 WeComNotifier (主类)
     ↓
@@ -214,6 +249,33 @@ WebhookManager (每个webhook一个实例)
 ├── MessageSegmenter (智能分段)
 └── Sender (HTTP发送 + 重试)
 ```
+
+### Webhook池模式（新架构）
+
+```
+WeComNotifier (主类)
+    ↓
+WebhookPool (webhook池管理器)
+    ↓
+├── WebhookResource 1
+│   └── RateLimiter (独立频控：20条/分钟)
+├── WebhookResource 2
+│   └── RateLimiter (独立频控：20条/分钟)
+├── WebhookResource 3
+│   └── RateLimiter (独立频控：20条/分钟)
+├── Scheduler (单线程调度器 - 保证顺序)
+│   ├── 智能webhook选择（最空闲优先）
+│   ├── 自动容错切换
+│   └── 负载均衡
+├── MessageSegmenter (智能分段)
+└── Sender (HTTP发送 + 重试)
+```
+
+**关键设计**：
+- **全局RateLimiter共享**：同一webhook在单/池模式下共享频控
+- **单线程串行处理**：严格保证消息顺序
+- **最空闲优先策略**：自动选择配额最多的webhook
+- **自动容错恢复**：失败webhook进入冷却期，过后自动恢复
 
 ### 核心特性说明
 
@@ -369,6 +431,35 @@ result.wait(timeout)     # 等待发送完成（异步模式）
 4. 确保消息最终送达
 
 **核心设计理念**：不管webhook之前是什么状态（即使被其他程序触发频控），只要调用本组件，消息就一定会成功发送（最多等待约5分钟）。
+
+### Q: 如何突破单webhook的频率限制？
+
+**A:** 使用**Webhook池**功能（v2.0新增）
+
+```python
+notifier = WeComNotifier()
+
+# 在同一个群聊中添加多个机器人webhook
+webhook_pool = [
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY1",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY2",
+    "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=KEY3"
+]
+
+# 传入列表即可，系统自动负载均衡
+notifier.send_text(webhook_url=webhook_pool, content="消息")
+```
+
+**性能提升**：
+- 1个webhook：20条/分钟
+- 3个webhook：60条/分钟
+- 10个webhook：200条/分钟
+
+**关键特性**：
+- ✅ 严格保证消息顺序
+- ✅ 智能负载均衡（最空闲优先）
+- ✅ 自动容错恢复
+- ✅ 完全向后兼容
 
 ### Q: 可以创建多个 WeComNotifier 实例吗？
 

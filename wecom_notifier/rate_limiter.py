@@ -94,6 +94,37 @@ class RateLimiter:
             self._clean_expired_timestamps(now)
             return self.max_count - len(self.timestamps)
 
+    def get_next_available_time(self) -> float:
+        """
+        获取下次有配额可用的时间戳
+
+        Returns:
+            float: 下次可用的时间戳（如果当前有配额则返回当前时间）
+        """
+        with self.lock:
+            now = time.time()
+            self._clean_expired_timestamps(now)
+
+            # 如果当前有配额，立即可用
+            if len(self.timestamps) < self.max_count:
+                return now
+
+            # 否则，等最老的时间戳过期
+            oldest_timestamp = self.timestamps[0]
+            return oldest_timestamp + self.time_window
+
+    def is_available_now(self) -> bool:
+        """
+        检查当前是否有可用配额（不考虑服务端锁定期）
+
+        Returns:
+            bool: 是否有可用配额
+        """
+        with self.lock:
+            now = time.time()
+            self._clean_expired_timestamps(now)
+            return len(self.timestamps) < self.max_count
+
     def mark_server_rate_limited(self, lockout_duration: int = None) -> None:
         """
         标记服务端返回了频控错误，进入锁定期

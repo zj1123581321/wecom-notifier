@@ -48,6 +48,10 @@ class SendResult:
         self.error: Optional[str] = None
         self._event = threading.Event()
 
+        # 池模式的额外信息（可选）
+        self.used_webhooks: List[str] = []  # 实际使用的webhook URL列表
+        self.segment_count: int = 0         # 分段数量
+
     def wait(self, timeout: Optional[float] = None) -> bool:
         """
         等待发送完成
