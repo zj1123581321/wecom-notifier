@@ -35,7 +35,6 @@ ERRCODE_RATE_LIMIT = 45009  # 频率限制
 
 # 日志设置
 DEFAULT_LOG_LEVEL = "INFO"
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 # Markdown语法标记
 MARKDOWN_LINK_PATTERN = r'\[([^\]]+)\]\(([^)]+)\)'  # [文字](url)

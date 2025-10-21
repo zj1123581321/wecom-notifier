@@ -2,12 +2,12 @@
 企业微信通知器 - 主类
 """
 import hashlib
-import logging
+import sys
 from typing import Optional, List, Dict, Union
+from loguru import logger
 
 from .constants import (
     DEFAULT_LOG_LEVEL,
-    LOG_FORMAT,
     MSG_TYPE_TEXT,
     MSG_TYPE_MARKDOWN_V2,
     MSG_TYPE_IMAGE,
@@ -38,8 +38,7 @@ class WeComNotifier:
             self,
             max_retries: int = 3,
             retry_delay: float = 2.0,
-            log_level: str = DEFAULT_LOG_LEVEL,
-            logger: Optional[logging.Logger] = None
+            log_level: str = DEFAULT_LOG_LEVEL
     ):
         """
         初始化通知器
@@ -48,16 +47,15 @@ class WeComNotifier:
             max_retries: HTTP请求最大重试次数
             retry_delay: 重试延迟（秒）
             log_level: 日志级别
-            logger: 自定义日志记录器
         """
         # 配置日志
-        self.logger = logger or self._setup_logger(log_level)
+        self._setup_logger(log_level)
 
         # 重试配置
         self.retry_config = RetryConfig(max_retries=max_retries, retry_delay=retry_delay)
 
         # 组件
-        self.sender = Sender(retry_config=self.retry_config, logger=self.logger)
+        self.sender = Sender(retry_config=self.retry_config)
         self.segmenter = MessageSegmenter()
 
         # 全局RateLimiter字典（URL → RateLimiter映射）
@@ -70,7 +68,7 @@ class WeComNotifier:
         # Webhook池字典（多webhook模式）
         self.webhook_pools: Dict[str, WebhookPool] = {}
 
-        self.logger.info("WeComNotifier initialized")
+        logger.info("WeComNotifier initialized")
 
     def send_text(
             self,
@@ -260,8 +258,7 @@ class WeComNotifier:
                 webhook_url=webhook_url,
                 sender=self.sender,
                 segmenter=self.segmenter,
-                rate_limiter=rate_limiter,
-                logger=self.logger
+                rate_limiter=rate_limiter
             )
             self.webhook_managers[webhook_url] = manager
 
@@ -307,8 +304,7 @@ class WeComNotifier:
             pool = WebhookPool(
                 resources=resources,
                 sender=self.sender,
-                segmenter=self.segmenter,
-                logger=self.logger
+                segmenter=self.segmenter
             )
             self.webhook_pools[pool_key] = pool
 
@@ -329,27 +325,23 @@ class WeComNotifier:
         key_string = "||".join(sorted_urls)
         return hashlib.md5(key_string.encode()).hexdigest()
 
-    def _setup_logger(self, log_level: str) -> logging.Logger:
+    def _setup_logger(self, log_level: str):
         """
         设置日志记录器
 
         Args:
             log_level: 日志级别
-
-        Returns:
-            logging.Logger: 日志记录器
         """
-        logger = logging.getLogger('wecom_notifier')
-        logger.setLevel(getattr(logging, log_level.upper()))
+        # 移除默认的 handler
+        logger.remove()
 
-        # 避免重复添加handler
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(LOG_FORMAT)
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-
-        return logger
+        # 添加自定义格式的 handler
+        logger.add(
+            sys.stdout,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+            level=log_level.upper(),
+            colorize=True
+        )
 
     def stop_all(self):
         """停止所有Webhook管理器和池"""

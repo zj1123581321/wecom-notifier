@@ -13,8 +13,7 @@
 ### 安装
 
 ```bash
-# 在你的项目中安装（开发模式）
-pip install -e D:\MyFolders\Developments\0Python\251017_WecomRobotPython
+pip install -U wecom-notifier
 ```
 
 ### 最简单的例子
@@ -791,10 +790,8 @@ if not result.is_success():
 # 减少日志输出
 notifier = WeComNotifier(log_level="WARNING")
 
-# 或使用自定义logger
-import logging
-my_logger = logging.getLogger("my_app")
-notifier = WeComNotifier(logger=my_logger)
+# 或者关闭日志
+notifier = WeComNotifier(log_level="ERROR")
 ```
 
 ## 📖 更多信息

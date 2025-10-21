@@ -1,11 +1,10 @@
 """
 Webhook管理器 - 管理单个webhook的消息队列和发送
 """
-import logging
 import queue
 import threading
 import time
-from typing import Optional
+from loguru import logger
 
 from .models import Message, SendResult
 from .rate_limiter import RateLimiter
@@ -26,8 +25,7 @@ class WebhookManager:
             webhook_url: str,
             sender: Sender,
             segmenter: MessageSegmenter,
-            rate_limiter: RateLimiter,
-            logger: Optional[logging.Logger] = None
+            rate_limiter: RateLimiter
     ):
         """
         初始化Webhook管理器
@@ -37,13 +35,11 @@ class WebhookManager:
             sender: HTTP发送器
             segmenter: 消息分段器
             rate_limiter: 频率限制器
-            logger: 日志记录器
         """
         self.webhook_url = webhook_url
         self.sender = sender
         self.segmenter = segmenter
         self.rate_limiter = rate_limiter
-        self.logger = logger or logging.getLogger(__name__)
 
         # 消息队列
         self.message_queue = queue.Queue()
@@ -58,7 +54,7 @@ class WebhookManager:
         self.worker_thread = threading.Thread(target=self._process_queue, daemon=True)
         self.worker_thread.start()
 
-        self.logger.info(f"WebhookManager initialized for {webhook_url}")
+        logger.info(f"WebhookManager initialized for {webhook_url}")
 
     def enqueue(self, message: Message) -> SendResult:
         """
@@ -74,12 +70,12 @@ class WebhookManager:
         self.results[message.id] = result
         self.message_queue.put(message)
 
-        self.logger.debug(f"Message {message.id} enqueued (type={message.msg_type})")
+        logger.debug(f"Message {message.id} enqueued (type={message.msg_type})")
         return result
 
     def _process_queue(self):
         """处理消息队列的工作线程"""
-        self.logger.info(f"Worker thread started for {self.webhook_url}")
+        logger.info(f"Worker thread started for {self.webhook_url}")
 
         while not self._stop_flag.is_set():
             try:
@@ -92,7 +88,8 @@ class WebhookManager:
                 # 处理消息
                 self._process_message(message)
             except Exception as e:
-                self.logger.error(f"Error processing message {message.id}: {e}", exc_info=True)
+                logger.error(f"Error processing message {message.id}: {e}")
+                logger.exception(e)
                 result = self.results.get(message.id)
                 if result:
                     result.mark_failed(f"Internal error: {e}")
@@ -108,16 +105,16 @@ class WebhookManager:
         """
         result = self.results.get(message.id)
         if not result:
-            self.logger.error(f"Result not found for message {message.id}")
+            logger.error(f"Result not found for message {message.id}")
             return
 
-        self.logger.info(f"Processing message {message.id} (type={message.msg_type})")
+        logger.info(f"Processing message {message.id} (type={message.msg_type})")
 
         # 分段
         segments = self._get_segments(message)
         total_segments = len(segments)
 
-        self.logger.debug(f"Message {message.id} split into {total_segments} segments")
+        logger.debug(f"Message {message.id} split into {total_segments} segments")
 
         # 发送每个分段
         for i, segment in enumerate(segments):
@@ -129,11 +126,11 @@ class WebhookManager:
 
             if not success:
                 # 发送失败，立即停止
-                self.logger.error(f"Segment {i + 1}/{total_segments} failed for message {message.id}: {error}")
+                logger.error(f"Segment {i + 1}/{total_segments} failed for message {message.id}: {error}")
                 result.mark_failed(f"Segment {i + 1}/{total_segments} failed: {error}")
                 return
 
-            self.logger.debug(f"Segment {i + 1}/{total_segments} sent successfully for message {message.id}")
+            logger.debug(f"Segment {i + 1}/{total_segments} sent successfully for message {message.id}")
 
             # 分段间延迟（最后一个分段不需要延迟）
             if i < total_segments - 1:
@@ -141,18 +138,18 @@ class WebhookManager:
 
         # 处理@all workaround（针对markdown_v2和image）
         if message.needs_mention_all_workaround():
-            self.logger.debug(f"Sending @all workaround for message {message.id}")
+            logger.debug(f"Sending @all workaround for message {message.id}")
 
             self.rate_limiter.acquire()
             success, error = self.sender.send_mention_all(self.webhook_url)
 
             if not success:
-                self.logger.error(f"@all workaround failed for message {message.id}: {error}")
+                logger.error(f"@all workaround failed for message {message.id}: {error}")
                 result.mark_failed(f"@all workaround failed: {error}")
                 return
 
         # 所有分段发送成功
-        self.logger.info(f"Message {message.id} sent successfully ({total_segments} segments)")
+        logger.info(f"Message {message.id} sent successfully ({total_segments} segments)")
         result.mark_success()
 
     def _get_segments(self, message: Message):
@@ -210,7 +207,7 @@ class WebhookManager:
 
     def stop(self):
         """停止管理器"""
-        self.logger.info(f"Stopping WebhookManager for {self.webhook_url}")
+        logger.info(f"Stopping WebhookManager for {self.webhook_url}")
         self._stop_flag.set()
         self.worker_thread.join(timeout=5)
 

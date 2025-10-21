@@ -3,10 +3,10 @@ HTTP发送器 - 负责实际的HTTP请求
 """
 import base64
 import hashlib
-import logging
 import time
 from typing import Dict, Any, Tuple, Optional
 import requests
+from loguru import logger
 
 from .exceptions import (
     NetworkError,
@@ -51,8 +51,7 @@ class Sender:
     def __init__(
             self,
             retry_config: Optional[RetryConfig] = None,
-            timeout: int = DEFAULT_TIMEOUT,
-            logger: Optional[logging.Logger] = None
+            timeout: int = DEFAULT_TIMEOUT
     ):
         """
         初始化发送器
@@ -60,11 +59,9 @@ class Sender:
         Args:
             retry_config: 重试配置
             timeout: HTTP请求超时时间
-            logger: 日志记录器
         """
         self.retry_config = retry_config or RetryConfig()
         self.timeout = timeout
-        self.logger = logger or logging.getLogger(__name__)
 
     def send_text(
             self,
@@ -185,7 +182,7 @@ class Sender:
         while True:
             try:
                 attempt_desc = f"network_retry={network_retry_count}, rate_limit_retry={rate_limit_retry_count}"
-                self.logger.debug(f"Sending request to {webhook_url} ({attempt_desc})")
+                logger.debug(f"Sending request to {webhook_url} ({attempt_desc})")
 
                 response = requests.post(
                     webhook_url,
@@ -201,23 +198,23 @@ class Sender:
                 errmsg = result.get('errmsg', 'Unknown error')
 
                 if errcode == ERRCODE_SUCCESS:
-                    self.logger.info(f"Message sent successfully")
+                    logger.info(f"Message sent successfully")
                     return True, None
 
                 # 处理不同错误码
                 if errcode == ERRCODE_WEBHOOK_INVALID:
                     error = WebhookInvalidError(f"Invalid webhook: {errmsg}")
-                    self.logger.error(f"Webhook invalid: {errmsg}")
+                    logger.error(f"Webhook invalid: {errmsg}")
                     return False, str(error)
 
                 elif errcode == ERRCODE_RATE_LIMIT:
                     # 服务端频控：可能是其他程序触发的，需要等待足够长的时间
                     error = RateLimitError(f"Rate limit exceeded: {errmsg}")
-                    self.logger.warning(f"Server-side rate limit exceeded: {errmsg}")
+                    logger.warning(f"Server-side rate limit exceeded: {errmsg}")
 
                     if rate_limit_retry_count < RATE_LIMIT_MAX_RETRIES:
                         rate_limit_retry_count += 1
-                        self.logger.warning(
+                        logger.warning(
                             f"Webhook may have been rate-limited by other programs. "
                             f"Waiting {RATE_LIMIT_WAIT_TIME}s before retry "
                             f"(rate_limit_retry {rate_limit_retry_count}/{RATE_LIMIT_MAX_RETRIES})"
@@ -227,7 +224,7 @@ class Sender:
                         network_retry_count = 0
                         continue
                     else:
-                        self.logger.error(
+                        logger.error(
                             f"Rate limit retry exhausted ({RATE_LIMIT_MAX_RETRIES} times, "
                             f"waited {RATE_LIMIT_MAX_RETRIES * RATE_LIMIT_WAIT_TIME}s total)"
                         )
@@ -235,20 +232,21 @@ class Sender:
 
                 else:
                     error = WeComError(f"API error {errcode}: {errmsg}")
-                    self.logger.error(f"API error: {errcode} - {errmsg}")
+                    logger.error(f"API error: {errcode} - {errmsg}")
                     return False, str(error)
 
             except requests.Timeout as e:
                 last_error = NetworkError(f"Request timeout: {e}")
-                self.logger.warning(f"Request timeout: {e}")
+                logger.warning(f"Request timeout: {e}")
 
             except requests.ConnectionError as e:
                 last_error = NetworkError(f"Connection failed: {e}")
-                self.logger.warning(f"Connection failed: {e}")
+                logger.warning(f"Connection failed: {e}")
 
             except Exception as e:
                 last_error = WeComError(f"Unexpected error: {e}")
-                self.logger.error(f"Unexpected error: {e}", exc_info=True)
+                logger.error(f"Unexpected error: {e}")
+                logger.exception(e)
                 return False, str(last_error)
 
             # 处理网络错误重试
@@ -256,18 +254,18 @@ class Sender:
                 if network_retry_count < self.retry_config.max_retries:
                     network_retry_count += 1
                     delay = self.retry_config.retry_delay * (self.retry_config.backoff_factor ** (network_retry_count - 1))
-                    self.logger.info(
+                    logger.info(
                         f"Network error, retrying in {delay}s "
                         f"(network_retry {network_retry_count}/{self.retry_config.max_retries})"
                     )
                     time.sleep(delay)
                     continue
                 else:
-                    self.logger.error(f"Network retry exhausted ({self.retry_config.max_retries} times)")
+                    logger.error(f"Network retry exhausted ({self.retry_config.max_retries} times)")
                     return False, str(last_error)
 
             # 其他未处理的错误
-            self.logger.error(f"Unhandled error: {last_error}")
+            logger.error(f"Unhandled error: {last_error}")
             return False, str(last_error)
 
     @staticmethod
