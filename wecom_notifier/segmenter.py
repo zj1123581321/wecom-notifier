@@ -63,17 +63,21 @@ class MessageSegmenter:
         current = ""
         lines = content.split('\n')
 
+        # 预留续页提示的空间
+        reserved_bytes = len(SEGMENT_CONTINUE_PREFIX.encode('utf-8')) + len(SEGMENT_CONTINUE_SUFFIX.encode('utf-8'))
+        available_bytes = self.max_bytes - reserved_bytes
+
         for line in lines:
             test_content = current + ('\n' if current else '') + line
 
-            if len(test_content.encode('utf-8')) > self.max_bytes:
+            if len(test_content.encode('utf-8')) > available_bytes:
                 # 当前行加入会超限
                 if current:
                     segments.append(current)
                     current = line
                 else:
                     # 单行就超过限制，强制截断
-                    chunks = self._force_split(line, self.max_bytes)
+                    chunks = self._force_split(line, available_bytes)
                     segments.extend(chunks[:-1])
                     current = chunks[-1]
             else:
@@ -95,6 +99,10 @@ class MessageSegmenter:
         """
         segments = []
         current = ""
+
+        # 预留续页提示的空间
+        reserved_bytes = len(SEGMENT_CONTINUE_PREFIX.encode('utf-8')) + len(SEGMENT_CONTINUE_SUFFIX.encode('utf-8'))
+        available_bytes = self.max_bytes - reserved_bytes
 
         # 先处理代码块（暂时替换为占位符）
         code_blocks = []
@@ -125,7 +133,7 @@ class MessageSegmenter:
                 # 处理表格分段
                 table_segments = self._segment_table(table_content)
                 for seg in table_segments:
-                    if current and len((current + '\n\n' + seg).encode('utf-8')) > self.max_bytes:
+                    if current and len((current + '\n\n' + seg).encode('utf-8')) > available_bytes:
                         segments.append(current)
                         current = seg
                     elif not current:
@@ -137,15 +145,28 @@ class MessageSegmenter:
             # 普通段落
             test_content = current + ('\n\n' if current else '') + para
 
-            if len(test_content.encode('utf-8')) > self.max_bytes:
+            if len(test_content.encode('utf-8')) > available_bytes:
                 if current:
                     segments.append(current)
-                    current = para
+                    current = ""
+                    # 重新检查para本身是否超限
+                    if len(para.encode('utf-8')) > available_bytes:
+                        # para本身超限，需要分段
+                        if self._is_protected_element(para):
+                            chunks = self._force_split(para, available_bytes)
+                            segments.extend(chunks[:-1])
+                            current = chunks[-1]
+                        else:
+                            line_segments = self._segment_text(para)
+                            segments.extend(line_segments[:-1])
+                            current = line_segments[-1]
+                    else:
+                        current = para
                 else:
                     # 单个段落就超过限制
                     if self._is_protected_element(para):
                         # 保护元素，强制截断
-                        chunks = self._force_split(para, self.max_bytes)
+                        chunks = self._force_split(para, available_bytes)
                         segments.extend(chunks[:-1])
                         current = chunks[-1]
                     else:
