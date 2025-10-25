@@ -217,7 +217,7 @@ result = notifier.send_text(
     content=long_text,
     async_send=False
 )
-# 会自动分段，每段不超过4096字节，并添加"续上页"/"未完待续"提示
+# 会自动分段，每段不超过4096字节，并添加"当前页码/总分页数量"提示
 ```
 
 ### 表格智能分段
