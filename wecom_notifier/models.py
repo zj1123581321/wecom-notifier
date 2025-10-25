@@ -88,10 +88,19 @@ class SendResult:
 class SegmentInfo:
     """分段信息"""
 
-    def __init__(self, content: str, is_first: bool = False, is_last: bool = False):
+    def __init__(
+        self,
+        content: str,
+        is_first: bool = False,
+        is_last: bool = False,
+        page_number: Optional[int] = None,
+        total_pages: Optional[int] = None
+    ):
         self.content = content
         self.is_first = is_first
         self.is_last = is_last
+        self.page_number = page_number  # 当前页码（从1开始），None表示不分页
+        self.total_pages = total_pages  # 总页数，None表示不分页
 
     def __repr__(self):
         flags = []
@@ -100,4 +109,10 @@ class SegmentInfo:
         if self.is_last:
             flags.append("last")
         flag_str = f" ({','.join(flags)})" if flags else ""
-        return f"<SegmentInfo length={len(self.content)}{flag_str}>"
+
+        # 添加页码信息
+        page_info = ""
+        if self.page_number is not None and self.total_pages is not None:
+            page_info = f" page={self.page_number}/{self.total_pages}"
+
+        return f"<SegmentInfo length={len(self.content)}{flag_str}{page_info}>"

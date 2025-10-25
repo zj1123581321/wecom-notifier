@@ -42,6 +42,6 @@ MARKDOWN_IMAGE_PATTERN = r'!\[([^\]]*)\]\(([^)]+)\)'  # ![文字](url)
 MARKDOWN_CODE_BLOCK_PATTERN = r'```[\s\S]*?```'  # 代码块
 MARKDOWN_TABLE_ROW_PATTERN = r'^\|.*\|$'  # 表格行
 
-# 分段提示文本
-SEGMENT_CONTINUE_PREFIX = "（续上页）\n\n"
-SEGMENT_CONTINUE_SUFFIX = "\n\n（未完待续）"
+# 页码格式设置
+PAGE_INDICATOR_FORMAT = "(Page {current}/{total})\n"  # 页码格式
+MAX_PAGE_INDICATOR_BYTES = 20  # 页码标记预留字节数

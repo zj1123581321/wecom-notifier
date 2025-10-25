@@ -9,8 +9,8 @@ from .constants import (
     MSG_TYPE_TEXT,
     MSG_TYPE_MARKDOWN_V2,
     MARKDOWN_TABLE_ROW_PATTERN,
-    SEGMENT_CONTINUE_PREFIX,
-    SEGMENT_CONTINUE_SUFFIX
+    PAGE_INDICATOR_FORMAT,
+    MAX_PAGE_INDICATOR_BYTES
 )
 
 
@@ -63,8 +63,8 @@ class MessageSegmenter:
         current = ""
         lines = content.split('\n')
 
-        # 预留续页提示的空间
-        reserved_bytes = len(SEGMENT_CONTINUE_PREFIX.encode('utf-8')) + len(SEGMENT_CONTINUE_SUFFIX.encode('utf-8'))
+        # 预留页码标记的空间
+        reserved_bytes = MAX_PAGE_INDICATOR_BYTES
         available_bytes = self.max_bytes - reserved_bytes
 
         for line in lines:
@@ -100,8 +100,8 @@ class MessageSegmenter:
         segments = []
         current = ""
 
-        # 预留续页提示的空间
-        reserved_bytes = len(SEGMENT_CONTINUE_PREFIX.encode('utf-8')) + len(SEGMENT_CONTINUE_SUFFIX.encode('utf-8'))
+        # 预留页码标记的空间
+        reserved_bytes = MAX_PAGE_INDICATOR_BYTES
         available_bytes = self.max_bytes - reserved_bytes
 
         # 先处理代码块（暂时替换为占位符）
@@ -212,11 +212,10 @@ class MessageSegmenter:
         segments = []
         current_rows = []
 
-        # 预留续页提示的空间
-        from .constants import SEGMENT_CONTINUE_PREFIX, SEGMENT_CONTINUE_SUFFIX
-        reserved_bytes = len(SEGMENT_CONTINUE_PREFIX.encode('utf-8')) + len(SEGMENT_CONTINUE_SUFFIX.encode('utf-8'))
+        # 预留页码标记的空间
+        reserved_bytes = MAX_PAGE_INDICATOR_BYTES
 
-        # 可用字节数 = 总限制 - 表头 - 换行符 - 续页提示
+        # 可用字节数 = 总限制 - 表头 - 换行符 - 页码标记
         available_bytes = self.max_bytes - header_bytes - len('\n'.encode('utf-8')) - reserved_bytes
 
         for row in data_rows:
@@ -315,7 +314,7 @@ class MessageSegmenter:
 
     def _mark_segments(self, segments: List[str]) -> List[SegmentInfo]:
         """
-        标记分段的首尾，并添加续页提示
+        标记分段的首尾，并添加页码标记
 
         Args:
             segments: 原始分段列表
@@ -326,18 +325,31 @@ class MessageSegmenter:
         if not segments:
             return []
 
+        total_pages = len(segments)
         result = []
+
         for i, seg in enumerate(segments):
             is_first = (i == 0)
             is_last = (i == len(segments) - 1)
+            page_number = i + 1  # 页码从1开始
 
-            # 添加续页提示
+            # 仅当总页数 > 1 时添加页码标记
             content = seg
-            if not is_first:
-                content = SEGMENT_CONTINUE_PREFIX + content
-            if not is_last:
-                content = content + SEGMENT_CONTINUE_SUFFIX
+            if total_pages > 1:
+                page_indicator = PAGE_INDICATOR_FORMAT.format(
+                    current=page_number,
+                    total=total_pages
+                )
+                content = page_indicator + content
 
-            result.append(SegmentInfo(content, is_first, is_last))
+            # 创建 SegmentInfo，包含页码信息（方便调试）
+            segment_info = SegmentInfo(
+                content=content,
+                is_first=is_first,
+                is_last=is_last,
+                page_number=page_number if total_pages > 1 else None,
+                total_pages=total_pages if total_pages > 1 else None
+            )
+            result.append(segment_info)
 
         return result
