@@ -4,6 +4,7 @@ Webhook管理器 - 管理单个webhook的消息队列和发送
 import queue
 import threading
 import time
+from typing import Optional
 from loguru import logger
 
 from .models import Message, SendResult
@@ -25,7 +26,8 @@ class WebhookManager:
             webhook_url: str,
             sender: Sender,
             segmenter: MessageSegmenter,
-            rate_limiter: RateLimiter
+            rate_limiter: RateLimiter,
+            content_moderator: Optional['ContentModerator'] = None
     ):
         """
         初始化Webhook管理器
@@ -35,11 +37,13 @@ class WebhookManager:
             sender: HTTP发送器
             segmenter: 消息分段器
             rate_limiter: 频率限制器
+            content_moderator: 内容审核器（可选）
         """
         self.webhook_url = webhook_url
         self.sender = sender
         self.segmenter = segmenter
         self.rate_limiter = rate_limiter
+        self.content_moderator = content_moderator
 
         # 消息队列
         self.message_queue = queue.Queue()
@@ -115,6 +119,43 @@ class WebhookManager:
         total_segments = len(segments)
 
         logger.debug(f"Message {message.id} split into {total_segments} segments")
+
+        # 审核分段（如果启用）
+        if self.content_moderator and self.content_moderator.enabled:
+            moderated_segments = []
+            for segment in segments:
+                # 跳过图片类型的审核
+                if message.msg_type == MSG_TYPE_IMAGE:
+                    moderated_segments.append(segment)
+                    continue
+
+                # 审核文本内容
+                moderated_content = self.content_moderator.moderate(segment.content)
+
+                if moderated_content is None:
+                    # 被拒绝，发送敏感词提示
+                    logger.warning(f"Message {message.id} blocked by content moderator")
+                    alert_msg = self.content_moderator.create_block_alert(segment.content, message.id)
+
+                    # 发送提示消息
+                    self.rate_limiter.acquire()
+                    self.sender.send_text(self.webhook_url, alert_msg)
+
+                    result.mark_failed("Content blocked by moderator")
+                    return
+
+                # 使用审核后的内容
+                from .models import SegmentInfo
+                moderated_segment = SegmentInfo(
+                    content=moderated_content,
+                    is_first=segment.is_first,
+                    is_last=segment.is_last,
+                    page_number=segment.page_number,
+                    total_pages=segment.total_pages
+                )
+                moderated_segments.append(moderated_segment)
+
+            segments = moderated_segments
 
         # 发送每个分段
         for i, segment in enumerate(segments):

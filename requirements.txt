@@ -1,2 +1,4 @@
 requests>=2.25.0
 loguru>=0.7.0
+pypinyin>=0.44.0
+pyahocorasick>=2.0.0

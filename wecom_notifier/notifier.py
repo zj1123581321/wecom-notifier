@@ -21,6 +21,7 @@ from .webhook_manager import WebhookManager
 from .webhook_pool import WebhookPool
 from .webhook_resource import WebhookResource
 from .exceptions import InvalidParameterError
+from .content_moderator import ContentModerator
 
 
 class WeComNotifier:
@@ -38,7 +39,9 @@ class WeComNotifier:
             self,
             max_retries: int = 3,
             retry_delay: float = 2.0,
-            log_level: str = DEFAULT_LOG_LEVEL
+            log_level: str = DEFAULT_LOG_LEVEL,
+            enable_content_moderation: bool = False,
+            moderation_config: Optional[Dict] = None
     ):
         """
         初始化通知器
@@ -47,6 +50,12 @@ class WeComNotifier:
             max_retries: HTTP请求最大重试次数
             retry_delay: 重试延迟（秒）
             log_level: 日志级别
+            enable_content_moderation: 是否启用内容审核
+            moderation_config: 审核配置字典
+                - sensitive_word_urls: List[str] - 敏感词URL列表
+                - strategy: str - 审核策略 ("block" | "replace" | "pinyin_reverse")
+                - cache_dir: str - 缓存目录（默认 ".wecom_cache"）
+                - url_timeout: int - URL请求超时（秒，默认10）
         """
         # 配置日志
         self._setup_logger(log_level)
@@ -67,6 +76,22 @@ class WeComNotifier:
 
         # Webhook池字典（多webhook模式）
         self.webhook_pools: Dict[str, WebhookPool] = {}
+
+        # 内容审核器（可选）
+        self.content_moderator: Optional[ContentModerator] = None
+        if enable_content_moderation:
+            if not moderation_config:
+                logger.warning("Content moderation enabled but no config provided, using defaults")
+                moderation_config = {}
+            try:
+                self.content_moderator = ContentModerator(moderation_config)
+                if self.content_moderator.enabled:
+                    logger.info("Content moderation enabled")
+                else:
+                    logger.warning("Content moderation initialized but disabled due to missing sensitive words")
+            except Exception as e:
+                logger.error(f"Failed to initialize content moderator: {e}")
+                self.content_moderator = None
 
         logger.info("WeComNotifier initialized")
 
@@ -258,7 +283,8 @@ class WeComNotifier:
                 webhook_url=webhook_url,
                 sender=self.sender,
                 segmenter=self.segmenter,
-                rate_limiter=rate_limiter
+                rate_limiter=rate_limiter,
+                content_moderator=self.content_moderator
             )
             self.webhook_managers[webhook_url] = manager
 
@@ -304,7 +330,8 @@ class WeComNotifier:
             pool = WebhookPool(
                 resources=resources,
                 sender=self.sender,
-                segmenter=self.segmenter
+                segmenter=self.segmenter,
+                content_moderator=self.content_moderator
             )
             self.webhook_pools[pool_key] = pool
 

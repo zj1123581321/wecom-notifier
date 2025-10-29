@@ -3,6 +3,7 @@ doc/cc-history
 logs
 AGENTS.md
 .venv_testpypi
+.wecom_cache
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

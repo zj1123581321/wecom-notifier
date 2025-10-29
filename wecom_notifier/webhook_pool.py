@@ -4,7 +4,7 @@ Webhook池 - 管理多个webhook的负载均衡和发送
 import queue
 import threading
 import time
-from typing import List
+from typing import List, Optional
 from loguru import logger
 
 from .constants import MSG_TYPE_TEXT, MSG_TYPE_MARKDOWN_V2, MSG_TYPE_IMAGE
@@ -35,7 +35,8 @@ class WebhookPool:
             self,
             resources: List[WebhookResource],
             sender: Sender,
-            segmenter: MessageSegmenter
+            segmenter: MessageSegmenter,
+            content_moderator: Optional['ContentModerator'] = None
     ):
         """
         初始化Webhook池
@@ -44,10 +45,12 @@ class WebhookPool:
             resources: Webhook资源列表
             sender: HTTP发送器
             segmenter: 消息分段器
+            content_moderator: 内容审核器（可选）
         """
         self.resources = resources
         self.sender = sender
         self.segmenter = segmenter
+        self.content_moderator = content_moderator
 
         if not self.resources:
             raise ValueError("Webhook pool must have at least one resource")
@@ -126,6 +129,44 @@ class WebhookPool:
         total_segments = len(segments)
 
         logger.debug(f"Message {message.id} split into {total_segments} segments")
+
+        # 审核分段（如果启用）
+        if self.content_moderator and self.content_moderator.enabled:
+            moderated_segments = []
+            for segment in segments:
+                # 跳过图片类型的审核
+                if message.msg_type == MSG_TYPE_IMAGE:
+                    moderated_segments.append(segment)
+                    continue
+
+                # 审核文本内容
+                moderated_content = self.content_moderator.moderate(segment.content)
+
+                if moderated_content is None:
+                    # 被拒绝，发送敏感词提示
+                    logger.warning(f"Message {message.id} blocked by content moderator in pool")
+                    alert_msg = self.content_moderator.create_block_alert(segment.content, message.id)
+
+                    # 选择一个webhook发送提示消息
+                    webhook = self._select_best_webhook()
+                    webhook.rate_limiter.acquire()
+                    self.sender.send_text(webhook.url, alert_msg)
+
+                    result.mark_failed("Content blocked by moderator")
+                    return
+
+                # 使用审核后的内容
+                from .models import SegmentInfo
+                moderated_segment = SegmentInfo(
+                    content=moderated_content,
+                    is_first=segment.is_first,
+                    is_last=segment.is_last,
+                    page_number=segment.page_number,
+                    total_pages=segment.total_pages
+                )
+                moderated_segments.append(moderated_segment)
+
+            segments = moderated_segments
 
         # 记录使用的webhooks
         used_webhooks = set()
