@@ -1,5 +1,218 @@
 # 更新日志
 
+所有值得注意的项目更改都将记录在此文件中。
+
+格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
+版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+---
+
+## [0.2.0] - 2025-11-03
+
+### ⚠️ 破坏性变更（Breaking Changes）
+
+#### 移除 `log_level` 参数
+
+**之前（v0.1.x）**：
+```python
+# ❌ 不再支持
+notifier = WeComNotifier(log_level="INFO")
+```
+
+**现在（v0.2.0+）**：
+```python
+# ✅ 方式1：使用快速配置
+from wecom_notifier import setup_logger
+setup_logger(log_level="INFO")
+notifier = WeComNotifier()
+
+# ✅ 方式2：应用层统一配置
+from loguru import logger
+logger.add("app.log", level="INFO")
+notifier = WeComNotifier()
+
+# ✅ 方式3：完全静默
+from wecom_notifier import disable_logger
+disable_logger()
+notifier = WeComNotifier()
+```
+
+**影响**：
+- `WeComNotifier.__init__()` 不再接受 `log_level` 参数
+- 现有代码需要更新日志配置方式
+- 不再自动调用 `logger.remove()`，不会破坏应用的日志配置
+
+**迁移指南**：详见 [日志配置指南](doc/logging_configuration_guide.md)
+
+---
+
+### ✨ 新增（Added）
+
+#### 独立的日志模块
+
+- **新模块**：`wecom_notifier/logger.py`
+  - 提供库专属的 logger 实例（带 `library="wecom_notifier"` 标识）
+  - 不污染全局日志配置
+
+#### 日志配置函数
+
+导出了三个便捷函数：
+
+1. **`setup_logger()`** - 快速配置日志
+   ```python
+   from wecom_notifier import setup_logger
+
+   setup_logger(
+       log_level="INFO",           # 日志级别
+       add_console=True,            # 控制台输出
+       add_file=True,               # 文件输出
+       log_file="wecom.log",        # 文件路径
+       colorize=True                # 颜色支持
+   )
+   ```
+
+2. **`disable_logger()`** - 禁用本库日志
+   ```python
+   from wecom_notifier import disable_logger
+   disable_logger()
+   ```
+
+3. **`enable_logger()`** - 重新启用日志
+   ```python
+   from wecom_notifier import enable_logger
+   enable_logger()
+   ```
+
+#### 详细的日志配置文档
+
+- **新文档**：`doc/logging_configuration_guide.md`（15页）
+  - 3种配置方式详解
+  - 常见场景示例（Flask、Django、定时任务等）
+  - 故障排查指南
+  - 性能优化建议
+
+---
+
+### 🔄 变更（Changed）
+
+#### 日志系统架构重构
+
+**核心改进**：
+- ✅ **不再破坏应用日志** - 移除了 `logger.remove()` 调用
+- ✅ **用户完全控制** - 默认不配置任何日志处理器
+- ✅ **库专属标识** - 所有日志带 `library="wecom_notifier"` 标识
+- ✅ **遵循最佳实践** - 符合 Python 第三方库标准
+
+**技术细节**：
+- 所有模块改用 `get_logger()` 获取库专属 logger
+- 使用 `logger.bind(library="wecom_notifier")` 创建隔离实例
+- 支持通过 filter 精确控制日志输出
+
+#### 所有模块日志更新
+
+更新了以下模块使用新的 logger 系统：
+- `notifier.py` - 主类
+- `webhook_pool.py` - Webhook池
+- `webhook_manager.py` - Webhook管理器
+- `sender.py` - HTTP发送器
+- `content_moderator.py` - 内容审核器
+- `content_filter.py` - 内容过滤器
+- `sensitive_word_loader.py` - 敏感词加载器
+- `moderation_strategies.py` - 审核策略
+
+---
+
+### 🗑️ 移除（Removed）
+
+- **`WeComNotifier.__init__(log_level=...)`** - 不再接受日志级别参数
+- **`WeComNotifier._setup_logger()`** - 移除自动日志配置方法
+- **`constants.DEFAULT_LOG_LEVEL`** - 移除默认日志级别常量
+
+---
+
+### 📚 文档（Documentation）
+
+#### 新增文档
+
+1. **日志配置指南** (`doc/logging_configuration_guide.md`)
+   - 3种日志配置方式详解
+   - 日志级别说明和使用场景
+   - 常见场景示例（10+个实际案例）
+   - 动态调整日志的多种方法
+   - 与标准 logging 模块集成
+   - 性能考虑和优化建议
+   - 故障排查（4个常见问题）
+
+2. **测试脚本** (`test_logging_refactor.py`)
+   - 验证日志系统的5项核心功能
+   - 可用于回归测试
+
+#### 更新文档
+
+- **README.md**
+  - 新增完整的"日志配置"章节
+  - 移除初始化参数中的 `log_level`
+  - 更新所有代码示例
+
+- **USAGE_GUIDE.md**
+  - 新增"日志配置"章节（第10节）
+  - 更新自定义配置示例
+  - 更新最佳实践中的单例示例
+  - 更新故障排查中的日志控制方法
+
+- **日志最佳实践** (`doc/wecom_notifier_logging_best_practices.md`)
+  - 保留原始需求分析文档
+  - 记录重构的设计原则
+
+---
+
+### 🎯 设计原则
+
+此次重构遵循以下第三方库日志最佳实践：
+
+1. **库不配置日志** ✅
+   - 默认情况下不调用 `logger.add()` 或 `logger.remove()`
+   - 由用户在应用层完全控制
+
+2. **使用库专属 logger** ✅
+   - 所有日志带 `library="wecom_notifier"` 标识
+   - 用户可通过 filter 精确控制
+
+3. **不污染全局** ✅
+   - 不修改 loguru 的全局配置
+   - 不影响应用程序或其他库的日志
+
+4. **提供便捷工具** ✅
+   - 为新手用户提供 `setup_logger()` 快速配置
+   - 为高级用户提供完全自由
+
+5. **向后兼容性说明** ⚠️
+   - 这是一个破坏性变更（主版本号升级 0.1.x → 0.2.0）
+   - 提供详细的迁移指南
+   - 旧的 `log_level` 参数不再支持
+
+---
+
+### 📊 测试验证
+
+通过 `test_logging_refactor.py` 验证：
+- ✅ 库不主动配置日志（遵循最佳实践）
+- ✅ `setup_logger()` 正常工作
+- ✅ `disable_logger()` 可以完全禁用
+- ✅ `enable_logger()` 可以重新启用
+- ✅ 所有日志都带有 `library='wecom_notifier'` 标识
+
+---
+
+### 🔗 相关资源
+
+- [日志配置指南](doc/logging_configuration_guide.md) - 完整的配置文档
+- [日志最佳实践](doc/wecom_notifier_logging_best_practices.md) - 设计原则
+- [Python Logging HOWTO](https://docs.python.org/3/howto/logging.html) - 官方指南
+- [Loguru 文档](https://loguru.readthedocs.io/) - loguru 使用手册
+
+---
+
 ## [0.1.5] - 2025-10-25
 
 ### 改进

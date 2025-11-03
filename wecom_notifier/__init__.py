@@ -22,7 +22,7 @@ from .exceptions import (
 )
 from .logger import setup_logger, disable_logger, enable_logger
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
 __all__ = [
     "WeComNotifier",
     "SendResult",
