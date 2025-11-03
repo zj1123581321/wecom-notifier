@@ -5,8 +5,8 @@ import queue
 import threading
 import time
 from typing import Optional
-from loguru import logger
 
+from .logger import get_logger
 from .models import Message, SendResult
 from .rate_limiter import RateLimiter
 from .segmenter import MessageSegmenter
@@ -39,6 +39,7 @@ class WebhookManager:
             rate_limiter: 频率限制器
             content_moderator: 内容审核器（可选）
         """
+        self.logger = get_logger()
         self.webhook_url = webhook_url
         self.sender = sender
         self.segmenter = segmenter
@@ -58,7 +59,7 @@ class WebhookManager:
         self.worker_thread = threading.Thread(target=self._process_queue, daemon=True)
         self.worker_thread.start()
 
-        logger.info(f"WebhookManager initialized for {webhook_url}")
+        self.logger.info(f"WebhookManager initialized for {webhook_url}")
 
     def enqueue(self, message: Message) -> SendResult:
         """
@@ -74,12 +75,12 @@ class WebhookManager:
         self.results[message.id] = result
         self.message_queue.put(message)
 
-        logger.debug(f"Message {message.id} enqueued (type={message.msg_type})")
+        self.logger.debug(f"Message {message.id} enqueued (type={message.msg_type})")
         return result
 
     def _process_queue(self):
         """处理消息队列的工作线程"""
-        logger.info(f"Worker thread started for {self.webhook_url}")
+        self.logger.info(f"Worker thread started for {self.webhook_url}")
 
         while not self._stop_flag.is_set():
             try:
@@ -92,8 +93,8 @@ class WebhookManager:
                 # 处理消息
                 self._process_message(message)
             except Exception as e:
-                logger.error(f"Error processing message {message.id}: {e}")
-                logger.exception(e)
+                self.logger.error(f"Error processing message {message.id}: {e}")
+                self.logger.exception(e)
                 result = self.results.get(message.id)
                 if result:
                     result.mark_failed(f"Internal error: {e}")
@@ -109,16 +110,16 @@ class WebhookManager:
         """
         result = self.results.get(message.id)
         if not result:
-            logger.error(f"Result not found for message {message.id}")
+            self.logger.error(f"Result not found for message {message.id}")
             return
 
-        logger.info(f"Processing message {message.id} (type={message.msg_type})")
+        self.logger.info(f"Processing message {message.id} (type={message.msg_type})")
 
         # 分段
         segments = self._get_segments(message)
         total_segments = len(segments)
 
-        logger.debug(f"Message {message.id} split into {total_segments} segments")
+        self.logger.debug(f"Message {message.id} split into {total_segments} segments")
 
         # 审核分段（如果启用）
         if self.content_moderator and self.content_moderator.enabled:
@@ -129,12 +130,16 @@ class WebhookManager:
                     moderated_segments.append(segment)
                     continue
 
-                # 审核文本内容
-                moderated_content = self.content_moderator.moderate(segment.content)
+                # 审核文本内容（传入message_id和msg_type）
+                moderated_content = self.content_moderator.moderate(
+                    content=segment.content,
+                    message_id=message.id,
+                    msg_type=message.msg_type
+                )
 
                 if moderated_content is None:
                     # 被拒绝，发送敏感词提示
-                    logger.warning(f"Message {message.id} blocked by content moderator")
+                    self.logger.warning(f"Message {message.id} blocked by content moderator")
                     alert_msg = self.content_moderator.create_block_alert(segment.content, message.id)
 
                     # 发送提示消息
@@ -167,11 +172,11 @@ class WebhookManager:
 
             if not success:
                 # 发送失败，立即停止
-                logger.error(f"Segment {i + 1}/{total_segments} failed for message {message.id}: {error}")
+                self.logger.error(f"Segment {i + 1}/{total_segments} failed for message {message.id}: {error}")
                 result.mark_failed(f"Segment {i + 1}/{total_segments} failed: {error}")
                 return
 
-            logger.debug(f"Segment {i + 1}/{total_segments} sent successfully for message {message.id}")
+            self.logger.debug(f"Segment {i + 1}/{total_segments} sent successfully for message {message.id}")
 
             # 分段间延迟（最后一个分段不需要延迟）
             if i < total_segments - 1:
@@ -179,18 +184,18 @@ class WebhookManager:
 
         # 处理@all workaround（针对markdown_v2和image）
         if message.needs_mention_all_workaround():
-            logger.debug(f"Sending @all workaround for message {message.id}")
+            self.logger.debug(f"Sending @all workaround for message {message.id}")
 
             self.rate_limiter.acquire()
             success, error = self.sender.send_mention_all(self.webhook_url)
 
             if not success:
-                logger.error(f"@all workaround failed for message {message.id}: {error}")
+                self.logger.error(f"@all workaround failed for message {message.id}: {error}")
                 result.mark_failed(f"@all workaround failed: {error}")
                 return
 
         # 所有分段发送成功
-        logger.info(f"Message {message.id} sent successfully ({total_segments} segments)")
+        self.logger.info(f"Message {message.id} sent successfully ({total_segments} segments)")
         result.mark_success()
 
     def _get_segments(self, message: Message):
@@ -248,7 +253,7 @@ class WebhookManager:
 
     def stop(self):
         """停止管理器"""
-        logger.info(f"Stopping WebhookManager for {self.webhook_url}")
+        self.logger.info(f"Stopping WebhookManager for {self.webhook_url}")
         self._stop_flag.set()
         self.worker_thread.join(timeout=5)
 

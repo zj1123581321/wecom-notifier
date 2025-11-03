@@ -6,6 +6,9 @@
 - 频率控制（20条/分钟）
 - 长文本自动分段
 - 同步/异步发送
+
+日志配置：
+    本库默认不配置日志，由用户控制。详见 README.md 的日志配置章节。
 """
 
 from .notifier import WeComNotifier
@@ -17,6 +20,7 @@ from .exceptions import (
     RateLimitError,
     InvalidParameterError
 )
+from .logger import setup_logger, disable_logger, enable_logger
 
 __version__ = "0.1.5"
 __all__ = [
@@ -26,5 +30,9 @@ __all__ = [
     "NetworkError",
     "WebhookInvalidError",
     "RateLimitError",
-    "InvalidParameterError"
+    "InvalidParameterError",
+    # 日志工具
+    "setup_logger",
+    "disable_logger",
+    "enable_logger"
 ]

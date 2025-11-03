@@ -13,6 +13,8 @@
 - 🎯 **@all功能增强** - 为不支持@all的格式（markdown_v2、image）自动追加text消息
 - 🔄 **同步/异步模式** - 灵活选择发送模式
 - 🛡️ **智能重试机制** - 网络错误（指数退避）和频率限制（固定65秒）分别处理
+- 🔒 **内容审核功能** - 敏感词检测与处理（拒绝/替换/混淆），支持1000+敏感词高效检测
+- 📋 **敏感消息日志** - 自动记录包含敏感词的消息，支持日志轮转（10MB+5备份），便于审计追溯
 - 📊 **详细日志记录** - 完整的调试和错误日志
 
 ## 📦 安装
@@ -201,9 +203,77 @@ print(f"分段数: {result.segment_count}")
 ```python
 notifier = WeComNotifier(
     max_retries=5,        # 最大重试次数
-    retry_delay=3.0,      # 重试延迟（秒）
-    log_level="DEBUG"     # 日志级别
+    retry_delay=3.0       # 重试延迟（秒）
 )
+```
+
+### 日志配置
+
+**重要变更（v0.2.0+）**：本库不再自动配置日志，由用户完全控制。
+
+#### 方式1：使用库提供的快速配置（推荐新手）
+
+```python
+from wecom_notifier import WeComNotifier, setup_logger
+
+# 在创建 notifier 之前配置日志
+setup_logger(log_level="INFO")  # 输出到控制台
+
+# 或同时输出到文件
+setup_logger(
+    log_level="DEBUG",
+    add_console=True,
+    add_file=True,
+    log_file="wecom.log"
+)
+
+notifier = WeComNotifier()
+```
+
+#### 方式2：在应用层统一配置（推荐生产环境）
+
+```python
+from loguru import logger
+from wecom_notifier import WeComNotifier
+
+# 配置应用的全局日志（包括本库）
+logger.add(
+    "app.log",
+    level="INFO",
+    rotation="10 MB",
+    retention="7 days",
+    # 可选：只记录本库的日志
+    filter=lambda record: record["extra"].get("library") == "wecom_notifier"
+)
+
+notifier = WeComNotifier()
+```
+
+#### 方式3：完全静默（不输出日志）
+
+```python
+from wecom_notifier import WeComNotifier, disable_logger
+
+disable_logger()  # 完全禁用本库日志
+notifier = WeComNotifier()
+```
+
+#### 动态调整日志级别
+
+```python
+from loguru import logger
+
+# 方式1：禁用/启用
+from wecom_notifier import disable_logger, enable_logger
+disable_logger()  # 禁用
+enable_logger()   # 重新启用
+
+# 方式2：通过环境变量
+# export LOGURU_LEVEL=DEBUG
+
+# 方式3：移除所有 handler 重新配置
+logger.remove()
+logger.add(sys.stdout, level="WARNING")
 ```
 
 ### 超长文本处理
@@ -235,6 +305,180 @@ result = notifier.send_markdown(
 )
 # 每个分段都会保留表头，并添加续页提示
 ```
+
+### 内容审核功能（可选）
+
+**适用场景：需要对发送内容进行敏感词检测和处理**
+
+#### 功能特性
+
+- ✅ **高性能检测** - AC自动机算法，支持1000+敏感词，检测时间< 1ms
+- ✅ **三种策略** - 拒绝发送（Block）、替换（Replace）、拼音混淆（PinyinReverse）
+- ✅ **灵活配置** - 从URL加载敏感词，支持本地缓存，启动时自动更新
+- ✅ **自动日志** - 记录包含敏感词的消息到JSON Lines文件，便于审计追溯
+- ✅ **大小写不敏感** - 自动处理大小写变体
+- ✅ **部分匹配** - 子串匹配，覆盖更全面
+
+#### 快速开始
+
+```python
+notifier = WeComNotifier(
+    enable_content_moderation=True,  # 启用内容审核
+    moderation_config={
+        "sensitive_word_urls": [
+            "http://example.com/sensitive_words1.txt",
+            "http://example.com/sensitive_words2.txt"
+        ],
+        "strategy": "replace",  # block | replace | pinyin_reverse
+    }
+)
+
+# 发送消息时会自动审核
+result = notifier.send_text(
+    webhook_url=WEBHOOK_URL,
+    content="包含敏感词的消息内容"
+)
+```
+
+#### 三种审核策略
+
+**1. Block策略 - 拒绝发送**
+```python
+moderation_config={
+    "strategy": "block",  # 检测到敏感词直接拒绝
+}
+
+# 包含敏感词的消息会被拒绝
+# 自动发送提示消息：⚠️ 敏感内容已拦截
+```
+
+**2. Replace策略 - 替换为[敏感词]**
+```python
+moderation_config={
+    "strategy": "replace",  # 替换为固定字符串
+}
+
+# 原文："这是关于梭哈买房的讨论"
+# 发送："这是关于[敏感词]的讨论"
+```
+
+**3. PinyinReverse策略 - 拼音/字母倒置**
+```python
+moderation_config={
+    "strategy": "pinyin_reverse",  # 混淆处理
+}
+
+# 中文：拼音首字母倒置
+# "梭哈结婚" → "hsjh"（suo ha jie hun → h s j h → hsjh）
+
+# 英文：字母倒置
+# "test" → "tset"
+```
+
+#### 敏感词文件格式
+
+```txt
+# sensitive_words.txt
+# 这是注释行，会被忽略
+
+梭哈买房
+供养者思维
+力工梭哈
+
+# 支持中英文
+test word
+another
+```
+
+**格式要求**：
+- 每行一个词
+- 自动去除空行和首尾空格
+- 支持 `#` 开头的注释行
+
+#### 敏感消息日志
+
+启用审核后，包含敏感词的消息会自动记录到日志文件：
+
+```python
+moderation_config={
+    "sensitive_word_urls": [...],
+    "strategy": "replace",
+
+    # 日志配置（可选，默认启用）
+    "log_sensitive_messages": True,  # 是否记录敏感消息
+    "log_file": ".wecom_cache/moderation.log",  # 日志文件路径
+    "log_max_bytes": 10 * 1024 * 1024,  # 单个文件最大10MB
+    "log_backup_count": 5,  # 保留5个备份文件
+}
+```
+
+**日志格式（JSON Lines）**：
+```json
+{"timestamp": "2025-10-29 17:53:39.140", "message_id": "2b81f971-xxx", "strategy": "replace", "msg_type": "text", "detected_words": ["梭哈结婚"], "original_content": "这是第一条关于梭哈结婚的测试消息"}
+{"timestamp": "2025-10-29 17:53:55.844", "message_id": "8a76eda2-xxx", "strategy": "block", "msg_type": "text", "detected_words": ["供养者思维", "梭哈买房"], "original_content": "这是关于梭哈买房和供养者思维的讨论"}
+```
+
+**查询日志**：
+```bash
+# 查看所有敏感消息
+cat .wecom_cache/moderation.log
+
+# 查找特定消息ID
+grep "2b81f971" .wecom_cache/moderation.log
+
+# 使用jq查询（需安装jq）
+cat .wecom_cache/moderation.log | jq 'select(.strategy == "block")'
+```
+
+#### 完整配置示例
+
+```python
+from wecom_notifier import WeComNotifier
+
+notifier = WeComNotifier(
+    # 基础配置
+    max_retries=3,
+    retry_delay=2.0,
+    log_level="INFO",
+
+    # 启用内容审核
+    enable_content_moderation=True,
+    moderation_config={
+        # 敏感词来源（必需）
+        "sensitive_word_urls": [
+            "http://example.com/words1.txt",
+            "http://example.com/words2.txt"
+        ],
+
+        # 审核策略（必需）
+        "strategy": "replace",  # block | replace | pinyin_reverse
+
+        # 缓存配置（可选）
+        "cache_dir": ".wecom_cache",  # 默认值
+        "url_timeout": 10,  # 默认10秒
+
+        # 日志配置（可选）
+        "log_sensitive_messages": True,  # 默认True
+        "log_file": ".wecom_cache/moderation.log",  # 默认路径
+        "log_max_bytes": 10 * 1024 * 1024,  # 默认10MB
+        "log_backup_count": 5,  # 默认5个备份
+    }
+)
+
+# 正常使用，审核过程对用户透明
+result = notifier.send_text(
+    webhook_url=WEBHOOK_URL,
+    content="你的消息内容"
+)
+```
+
+#### 注意事项
+
+1. **默认不启用** - 需显式设置 `enable_content_moderation=True`
+2. **启动时加载** - 敏感词在系统启动时从URL加载，失败时使用缓存
+3. **审核时机** - 在消息分段后、发送前进行审核
+4. **日志安全** - 日志文件包含敏感信息，请注意权限控制和定期清理
+5. **性能影响** - AC自动机算法性能优异，对发送速度几乎无影响
 
 ## 🏗️ 架构设计
 
@@ -330,11 +574,11 @@ WebhookPool (webhook池管理器)
 ```python
 WeComNotifier(
     max_retries=3,         # HTTP请求最大重试次数
-    retry_delay=2.0,       # 重试延迟（秒）
-    log_level="INFO",      # 日志级别: DEBUG/INFO/WARNING/ERROR
-    logger=None            # 自定义日志记录器
+    retry_delay=2.0        # 重试延迟（秒）
 )
 ```
+
+**注意**：v0.2.0+ 已移除 `log_level` 参数，请使用 `setup_logger()` 函数配置日志。
 
 #### send_text()
 

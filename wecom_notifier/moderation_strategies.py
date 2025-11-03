@@ -8,11 +8,14 @@
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional
-from loguru import logger
 from pypinyin import lazy_pinyin
 import re
 
+from .logger import get_logger
 from .content_filter import ContentFilter, SensitiveWordMatch
+
+# 模块级别的 logger
+logger = get_logger()
 
 
 class ModerationStrategy(ABC):

@@ -5,11 +5,12 @@
 """
 from typing import Optional
 from datetime import datetime
-from loguru import logger
 
+from .logger import get_logger
 from .sensitive_word_loader import SensitiveWordLoader
 from .content_filter import ContentFilter
 from .moderation_strategies import create_strategy, ModerationStrategy
+from .sensitive_logger import SensitiveMessageLogger
 
 
 class ContentModerator:
@@ -32,17 +33,23 @@ class ContentModerator:
                 - strategy: str - 审核策略 ("block" | "replace" | "pinyin_reverse")
                 - cache_dir: str - 缓存目录
                 - url_timeout: int - URL请求超时（秒）
+                - log_sensitive_messages: bool - 是否记录敏感消息（默认True）
+                - log_file: str - 日志文件路径
+                - log_max_bytes: int - 单个日志文件最大字节数
+                - log_backup_count: int - 保留的备份文件数量
         """
+        self.logger = get_logger()
         self.config = config
         self.enabled = False
+        self.sensitive_logger = None
 
         # 加载敏感词
-        logger.info("Initializing content moderator...")
+        self.logger.info("Initializing content moderator...")
         word_loader = SensitiveWordLoader(config)
         words = word_loader.load()
 
         if not words:
-            logger.warning("No sensitive words loaded, content moderation will be disabled")
+            self.logger.warning("No sensitive words loaded, content moderation will be disabled")
             return
 
         # 初始化过滤器
@@ -52,16 +59,32 @@ class ContentModerator:
         # 创建策略
         strategy_name = config.get("strategy", "replace")
         self.strategy = create_strategy(strategy_name)
+        self.strategy_name = strategy_name
+
+        # 初始化敏感消息日志记录器（如果启用）
+        if config.get("log_sensitive_messages", True):
+            try:
+                self.sensitive_logger = SensitiveMessageLogger(
+                    log_file=config.get("log_file", ".wecom_cache/moderation.log"),
+                    max_bytes=config.get("log_max_bytes", 10 * 1024 * 1024),
+                    backup_count=config.get("log_backup_count", 5)
+                )
+                self.logger.info(f"Sensitive message logging enabled: {self.sensitive_logger.log_file}")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize sensitive message logger: {e}")
+                self.sensitive_logger = None
 
         self.enabled = True
-        logger.info(f"Content moderator initialized with {len(words)} words, strategy: {strategy_name}")
+        self.logger.info(f"Content moderator initialized with {len(words)} words, strategy: {strategy_name}")
 
-    def moderate(self, content: str) -> Optional[str]:
+    def moderate(self, content: str, message_id: str = None, msg_type: str = "text") -> Optional[str]:
         """
         审核内容
 
         Args:
             content: 待审核内容
+            message_id: 消息ID（用于日志记录）
+            msg_type: 消息类型（text/markdown_v2）
 
         Returns:
             Optional[str]: 审核后的内容，None表示拒绝发送
@@ -80,8 +103,22 @@ class ContentModerator:
             return content
 
         # 有敏感词，应用策略
-        logger.warning(f"Detected {len(matches)} sensitive word(s) in content")
+        self.logger.warning(f"Detected {len(matches)} sensitive word(s) in content")
         moderated_content = self.strategy.apply(content, matches)
+
+        # 记录到日志
+        if self.sensitive_logger and message_id:
+            detected_words = list(set(match.word for match in matches))
+            try:
+                self.sensitive_logger.log_sensitive_message(
+                    message_id=message_id,
+                    content=content,
+                    detected_words=detected_words,
+                    strategy=self.strategy_name,
+                    msg_type=msg_type
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to log sensitive message: {e}")
 
         return moderated_content
 

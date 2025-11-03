@@ -2,12 +2,10 @@
 企业微信通知器 - 主类
 """
 import hashlib
-import sys
 from typing import Optional, List, Dict, Union
-from loguru import logger
 
+from .logger import get_logger
 from .constants import (
-    DEFAULT_LOG_LEVEL,
     MSG_TYPE_TEXT,
     MSG_TYPE_MARKDOWN_V2,
     MSG_TYPE_IMAGE,
@@ -33,13 +31,29 @@ class WeComNotifier:
     - 频率控制（20条/分钟）
     - 长文本自动分段
     - 同步/异步发送
+
+    日志说明：
+        本库使用 loguru 进行日志记录，库名为 'wecom_notifier'。
+        默认情况下不会配置任何日志处理器，由用户在应用层统一配置。
+
+        配置方式：
+        1. 使用本库提供的工具（快速配置）：
+           from wecom_notifier.logger import setup_logger
+           setup_logger(log_level="INFO")
+
+        2. 在应用层统一配置（推荐）：
+           from loguru import logger
+           logger.add("app.log", filter=lambda r: r["extra"].get("library") == "wecom_notifier")
+
+        3. 完全静默：
+           from wecom_notifier.logger import disable_logger
+           disable_logger()
     """
 
     def __init__(
             self,
             max_retries: int = 3,
             retry_delay: float = 2.0,
-            log_level: str = DEFAULT_LOG_LEVEL,
             enable_content_moderation: bool = False,
             moderation_config: Optional[Dict] = None
     ):
@@ -49,16 +63,19 @@ class WeComNotifier:
         Args:
             max_retries: HTTP请求最大重试次数
             retry_delay: 重试延迟（秒）
-            log_level: 日志级别
             enable_content_moderation: 是否启用内容审核
             moderation_config: 审核配置字典
                 - sensitive_word_urls: List[str] - 敏感词URL列表
                 - strategy: str - 审核策略 ("block" | "replace" | "pinyin_reverse")
                 - cache_dir: str - 缓存目录（默认 ".wecom_cache"）
                 - url_timeout: int - URL请求超时（秒，默认10）
+                - log_sensitive_messages: bool - 是否记录敏感消息日志（默认True）
+                - log_file: str - 日志文件路径（默认 ".wecom_cache/moderation.log"）
+                - log_max_bytes: int - 单个日志文件最大字节数（默认10MB）
+                - log_backup_count: int - 保留的备份文件数量（默认5）
         """
-        # 配置日志
-        self._setup_logger(log_level)
+        # 获取库专属的 logger
+        self.logger = get_logger()
 
         # 重试配置
         self.retry_config = RetryConfig(max_retries=max_retries, retry_delay=retry_delay)
@@ -81,19 +98,19 @@ class WeComNotifier:
         self.content_moderator: Optional[ContentModerator] = None
         if enable_content_moderation:
             if not moderation_config:
-                logger.warning("Content moderation enabled but no config provided, using defaults")
+                self.logger.warning("Content moderation enabled but no config provided, using defaults")
                 moderation_config = {}
             try:
                 self.content_moderator = ContentModerator(moderation_config)
                 if self.content_moderator.enabled:
-                    logger.info("Content moderation enabled")
+                    self.logger.info("Content moderation enabled")
                 else:
-                    logger.warning("Content moderation initialized but disabled due to missing sensitive words")
+                    self.logger.warning("Content moderation initialized but disabled due to missing sensitive words")
             except Exception as e:
-                logger.error(f"Failed to initialize content moderator: {e}")
+                self.logger.error(f"Failed to initialize content moderator: {e}")
                 self.content_moderator = None
 
-        logger.info("WeComNotifier initialized")
+        self.logger.info("WeComNotifier initialized")
 
     def send_text(
             self,
@@ -351,24 +368,6 @@ class WeComNotifier:
         sorted_urls = sorted(webhook_urls)
         key_string = "||".join(sorted_urls)
         return hashlib.md5(key_string.encode()).hexdigest()
-
-    def _setup_logger(self, log_level: str):
-        """
-        设置日志记录器
-
-        Args:
-            log_level: 日志级别
-        """
-        # 移除默认的 handler
-        logger.remove()
-
-        # 添加自定义格式的 handler
-        logger.add(
-            sys.stdout,
-            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-            level=log_level.upper(),
-            colorize=True
-        )
 
     def stop_all(self):
         """停止所有Webhook管理器和池"""

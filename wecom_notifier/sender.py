@@ -6,8 +6,8 @@ import hashlib
 import time
 from typing import Dict, Any, Tuple, Optional
 import requests
-from loguru import logger
 
+from .logger import get_logger
 from .exceptions import (
     NetworkError,
     WebhookInvalidError,
@@ -60,6 +60,7 @@ class Sender:
             retry_config: 重试配置
             timeout: HTTP请求超时时间
         """
+        self.logger = get_logger()
         self.retry_config = retry_config or RetryConfig()
         self.timeout = timeout
 
@@ -182,7 +183,7 @@ class Sender:
         while True:
             try:
                 attempt_desc = f"network_retry={network_retry_count}, rate_limit_retry={rate_limit_retry_count}"
-                logger.debug(f"Sending request to {webhook_url} ({attempt_desc})")
+                self.logger.debug(f"Sending request to {webhook_url} ({attempt_desc})")
 
                 response = requests.post(
                     webhook_url,
@@ -198,23 +199,23 @@ class Sender:
                 errmsg = result.get('errmsg', 'Unknown error')
 
                 if errcode == ERRCODE_SUCCESS:
-                    logger.info(f"Message sent successfully")
+                    self.logger.info(f"Message sent successfully")
                     return True, None
 
                 # 处理不同错误码
                 if errcode == ERRCODE_WEBHOOK_INVALID:
                     error = WebhookInvalidError(f"Invalid webhook: {errmsg}")
-                    logger.error(f"Webhook invalid: {errmsg}")
+                    self.logger.error(f"Webhook invalid: {errmsg}")
                     return False, str(error)
 
                 elif errcode == ERRCODE_RATE_LIMIT:
                     # 服务端频控：可能是其他程序触发的，需要等待足够长的时间
                     error = RateLimitError(f"Rate limit exceeded: {errmsg}")
-                    logger.warning(f"Server-side rate limit exceeded: {errmsg}")
+                    self.logger.warning(f"Server-side rate limit exceeded: {errmsg}")
 
                     if rate_limit_retry_count < RATE_LIMIT_MAX_RETRIES:
                         rate_limit_retry_count += 1
-                        logger.warning(
+                        self.logger.warning(
                             f"Webhook may have been rate-limited by other programs. "
                             f"Waiting {RATE_LIMIT_WAIT_TIME}s before retry "
                             f"(rate_limit_retry {rate_limit_retry_count}/{RATE_LIMIT_MAX_RETRIES})"
@@ -224,7 +225,7 @@ class Sender:
                         network_retry_count = 0
                         continue
                     else:
-                        logger.error(
+                        self.logger.error(
                             f"Rate limit retry exhausted ({RATE_LIMIT_MAX_RETRIES} times, "
                             f"waited {RATE_LIMIT_MAX_RETRIES * RATE_LIMIT_WAIT_TIME}s total)"
                         )
@@ -232,21 +233,21 @@ class Sender:
 
                 else:
                     error = WeComError(f"API error {errcode}: {errmsg}")
-                    logger.error(f"API error: {errcode} - {errmsg}")
+                    self.logger.error(f"API error: {errcode} - {errmsg}")
                     return False, str(error)
 
             except requests.Timeout as e:
                 last_error = NetworkError(f"Request timeout: {e}")
-                logger.warning(f"Request timeout: {e}")
+                self.logger.warning(f"Request timeout: {e}")
 
             except requests.ConnectionError as e:
                 last_error = NetworkError(f"Connection failed: {e}")
-                logger.warning(f"Connection failed: {e}")
+                self.logger.warning(f"Connection failed: {e}")
 
             except Exception as e:
                 last_error = WeComError(f"Unexpected error: {e}")
-                logger.error(f"Unexpected error: {e}")
-                logger.exception(e)
+                self.logger.error(f"Unexpected error: {e}")
+                self.logger.exception(e)
                 return False, str(last_error)
 
             # 处理网络错误重试
@@ -254,18 +255,18 @@ class Sender:
                 if network_retry_count < self.retry_config.max_retries:
                     network_retry_count += 1
                     delay = self.retry_config.retry_delay * (self.retry_config.backoff_factor ** (network_retry_count - 1))
-                    logger.info(
+                    self.logger.info(
                         f"Network error, retrying in {delay}s "
                         f"(network_retry {network_retry_count}/{self.retry_config.max_retries})"
                     )
                     time.sleep(delay)
                     continue
                 else:
-                    logger.error(f"Network retry exhausted ({self.retry_config.max_retries} times)")
+                    self.logger.error(f"Network retry exhausted ({self.retry_config.max_retries} times)")
                     return False, str(last_error)
 
             # 其他未处理的错误
-            logger.error(f"Unhandled error: {last_error}")
+            self.logger.error(f"Unhandled error: {last_error}")
             return False, str(last_error)
 
     @staticmethod

@@ -5,8 +5,8 @@ import queue
 import threading
 import time
 from typing import List, Optional
-from loguru import logger
 
+from .logger import get_logger
 from .constants import MSG_TYPE_TEXT, MSG_TYPE_MARKDOWN_V2, MSG_TYPE_IMAGE
 from .models import Message, SendResult
 from .segmenter import MessageSegmenter
@@ -47,6 +47,7 @@ class WebhookPool:
             segmenter: 消息分段器
             content_moderator: 内容审核器（可选）
         """
+        self.logger = get_logger()
         self.resources = resources
         self.sender = sender
         self.segmenter = segmenter
@@ -68,7 +69,7 @@ class WebhookPool:
         self.scheduler_thread = threading.Thread(target=self._schedule_messages, daemon=True)
         self.scheduler_thread.start()
 
-        logger.info(f"WebhookPool initialized with {len(self.resources)} webhooks")
+        self.logger.info(f"WebhookPool initialized with {len(self.resources)} webhooks")
 
     def enqueue(self, message: Message) -> SendResult:
         """
@@ -84,12 +85,12 @@ class WebhookPool:
         self.results[message.id] = result
         self.message_queue.put(message)
 
-        logger.debug(f"Message {message.id} enqueued to pool (type={message.msg_type})")
+        self.logger.debug(f"Message {message.id} enqueued to pool (type={message.msg_type})")
         return result
 
     def _schedule_messages(self):
         """调度线程 - 串行处理消息"""
-        logger.info("WebhookPool scheduler thread started")
+        self.logger.info("WebhookPool scheduler thread started")
 
         while not self._stop_flag.is_set():
             try:
@@ -102,8 +103,8 @@ class WebhookPool:
                 # 处理消息
                 self._process_message(message)
             except Exception as e:
-                logger.error(f"Error processing message {message.id}: {e}")
-                logger.exception(e)
+                self.logger.error(f"Error processing message {message.id}: {e}")
+                self.logger.exception(e)
                 result = self.results.get(message.id)
                 if result:
                     result.mark_failed(f"Internal error: {e}")
@@ -119,16 +120,16 @@ class WebhookPool:
         """
         result = self.results.get(message.id)
         if not result:
-            logger.error(f"Result not found for message {message.id}")
+            self.logger.error(f"Result not found for message {message.id}")
             return
 
-        logger.info(f"Processing message {message.id} in pool (type={message.msg_type})")
+        self.logger.info(f"Processing message {message.id} in pool (type={message.msg_type})")
 
         # 分段
         segments = self._get_segments(message)
         total_segments = len(segments)
 
-        logger.debug(f"Message {message.id} split into {total_segments} segments")
+        self.logger.debug(f"Message {message.id} split into {total_segments} segments")
 
         # 审核分段（如果启用）
         if self.content_moderator and self.content_moderator.enabled:
@@ -139,12 +140,16 @@ class WebhookPool:
                     moderated_segments.append(segment)
                     continue
 
-                # 审核文本内容
-                moderated_content = self.content_moderator.moderate(segment.content)
+                # 审核文本内容（传入message_id和msg_type）
+                moderated_content = self.content_moderator.moderate(
+                    content=segment.content,
+                    message_id=message.id,
+                    msg_type=message.msg_type
+                )
 
                 if moderated_content is None:
                     # 被拒绝，发送敏感词提示
-                    logger.warning(f"Message {message.id} blocked by content moderator in pool")
+                    self.logger.warning(f"Message {message.id} blocked by content moderator in pool")
                     alert_msg = self.content_moderator.create_block_alert(segment.content, message.id)
 
                     # 选择一个webhook发送提示消息
@@ -177,7 +182,7 @@ class WebhookPool:
             try:
                 webhook = self._select_best_webhook()
             except AllWebhooksUnavailableError as e:
-                logger.error(f"All webhooks unavailable for message {message.id}")
+                self.logger.error(f"All webhooks unavailable for message {message.id}")
                 result.mark_failed(str(e))
                 return
 
@@ -191,14 +196,14 @@ class WebhookPool:
                 # 成功
                 webhook.mark_success()
                 used_webhooks.add(webhook.url)
-                logger.debug(
+                self.logger.debug(
                     f"Segment {i + 1}/{total_segments} sent via {webhook.url[:30]}... "
                     f"for message {message.id}"
                 )
             else:
                 # 失败
                 webhook.mark_failure()
-                logger.warning(
+                self.logger.warning(
                     f"Segment {i + 1}/{total_segments} failed via {webhook.url[:30]}...: {error}"
                 )
 
@@ -207,7 +212,7 @@ class WebhookPool:
 
                 if not retry_success:
                     # 所有webhook都失败了
-                    logger.error(
+                    self.logger.error(
                         f"Segment {i + 1}/{total_segments} failed on all webhooks for message {message.id}"
                     )
                     result.mark_failed(f"Segment {i + 1}/{total_segments} failed on all webhooks")
@@ -219,7 +224,7 @@ class WebhookPool:
 
         # 处理@all workaround
         if message.needs_mention_all_workaround():
-            logger.debug(f"Sending @all workaround for message {message.id}")
+            self.logger.debug(f"Sending @all workaround for message {message.id}")
 
             webhook = self._select_best_webhook()
             webhook.rate_limiter.acquire()
@@ -231,12 +236,12 @@ class WebhookPool:
                 used_webhooks.add(webhook.url)
             else:
                 webhook.mark_failure()
-                logger.error(f"@all workaround failed for message {message.id}: {error}")
+                self.logger.error(f"@all workaround failed for message {message.id}: {error}")
                 result.mark_failed(f"@all workaround failed: {error}")
                 return
 
         # 所有分段发送成功
-        logger.info(
+        self.logger.info(
             f"Message {message.id} sent successfully ({total_segments} segments, "
             f"{len(used_webhooks)} webhooks)"
         )
@@ -285,11 +290,11 @@ class WebhookPool:
             if success:
                 webhook.mark_success()
                 exclude_webhooks.add(webhook.url)
-                logger.info(f"Segment {segment_index} retry succeeded via {webhook.url[:30]}...")
+                self.logger.info(f"Segment {segment_index} retry succeeded via {webhook.url[:30]}...")
                 return True
             else:
                 webhook.mark_failure()
-                logger.warning(f"Segment {segment_index} retry failed via {webhook.url[:30]}...")
+                self.logger.warning(f"Segment {segment_index} retry failed via {webhook.url[:30]}...")
 
         return False
 
@@ -368,7 +373,7 @@ class WebhookPool:
             min_cooldown = min(w.get_cooldown_remaining() for w in self.resources)
 
             if min_cooldown > 0:
-                logger.warning(
+                self.logger.warning(
                     f"All webhooks in cooldown, waiting {min_cooldown:.1f}s for recovery"
                 )
                 time.sleep(min_cooldown + 0.1)  # 额外加0.1秒确保恢复
@@ -390,7 +395,7 @@ class WebhookPool:
             wait_time = soonest[1] - time.time()
 
             if wait_time > 0:
-                logger.debug(f"Waiting {wait_time:.1f}s for webhook quota")
+                self.logger.debug(f"Waiting {wait_time:.1f}s for webhook quota")
                 time.sleep(wait_time)
 
             return soonest[0]
@@ -399,7 +404,7 @@ class WebhookPool:
 
     def stop(self):
         """停止池"""
-        logger.info("Stopping WebhookPool")
+        self.logger.info("Stopping WebhookPool")
         self._stop_flag.set()
         self.scheduler_thread.join(timeout=5)
 

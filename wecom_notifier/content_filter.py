@@ -4,8 +4,9 @@
 使用AC自动机算法高效检测敏感词
 """
 from typing import List, Tuple
-from loguru import logger
 import ahocorasick
+
+from .logger import get_logger
 
 
 class SensitiveWordMatch:
@@ -39,6 +40,7 @@ class ContentFilter:
 
     def __init__(self):
         """初始化过滤器"""
+        self.logger = get_logger()
         self.automaton: ahocorasick.Automaton = None
         self.word_count = 0
 
@@ -50,10 +52,10 @@ class ContentFilter:
             words: 敏感词列表
         """
         if not words:
-            logger.warning("No sensitive words to load")
+            self.logger.warning("No sensitive words to load")
             return
 
-        logger.info(f"Building AC automaton with {len(words)} words")
+        self.logger.info(f"Building AC automaton with {len(words)} words")
 
         # 创建AC自动机
         self.automaton = ahocorasick.Automaton()
@@ -70,7 +72,7 @@ class ContentFilter:
         self.automaton.make_automaton()
         self.word_count = len(words)
 
-        logger.info(f"AC automaton built successfully with {self.word_count} words")
+        self.logger.info(f"AC automaton built successfully with {self.word_count} words")
 
     def detect(self, content: str) -> List[SensitiveWordMatch]:
         """
@@ -83,7 +85,7 @@ class ContentFilter:
             List[SensitiveWordMatch]: 匹配到的敏感词列表
         """
         if not self.automaton:
-            logger.warning("AC automaton not initialized, skipping detection")
+            self.logger.warning("AC automaton not initialized, skipping detection")
             return []
 
         if not content:
@@ -104,7 +106,7 @@ class ContentFilter:
             matches.append(match)
 
         if matches:
-            logger.debug(f"Detected {len(matches)} sensitive word(s) in content")
+            self.logger.debug(f"Detected {len(matches)} sensitive word(s) in content")
 
         return matches
 

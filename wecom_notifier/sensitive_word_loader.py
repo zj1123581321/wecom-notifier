@@ -7,8 +7,9 @@ import json
 import os
 from datetime import datetime
 from typing import List, Optional
-from loguru import logger
 import requests
+
+from .logger import get_logger
 
 
 class SensitiveWordLoader:
@@ -24,6 +25,7 @@ class SensitiveWordLoader:
                 - cache_dir: str - 缓存目录
                 - url_timeout: int - URL请求超时（秒）
         """
+        self.logger = get_logger()
         self.urls = config.get("sensitive_word_urls", [])
         self.cache_dir = config.get("cache_dir", ".wecom_cache")
         self.timeout = config.get("url_timeout", 10)
@@ -42,25 +44,25 @@ class SensitiveWordLoader:
         Returns:
             List[str]: 敏感词列表（去重、去空）
         """
-        logger.info(f"Loading sensitive words from {len(self.urls)} URLs")
+        self.logger.info(f"Loading sensitive words from {len(self.urls)} URLs")
 
         # 1. 尝试从URL加载
         words = self._fetch_from_urls()
 
         if words:
             # 成功加载，更新缓存
-            logger.info(f"Successfully loaded {len(words)} sensitive words from URLs")
+            self.logger.info(f"Successfully loaded {len(words)} sensitive words from URLs")
             self._save_cache(words)
             return words
         else:
             # 加载失败，尝试使用缓存
-            logger.warning("Failed to load from URLs, trying to use cache")
+            self.logger.warning("Failed to load from URLs, trying to use cache")
             cached_words = self._load_cache()
             if cached_words:
-                logger.info(f"Using cached sensitive words: {len(cached_words)} words")
+                self.logger.info(f"Using cached sensitive words: {len(cached_words)} words")
                 return cached_words
             else:
-                logger.error("No cache available, content moderation will be disabled")
+                self.logger.error("No cache available, content moderation will be disabled")
                 return []
 
     def _fetch_from_urls(self) -> List[str]:
@@ -74,7 +76,7 @@ class SensitiveWordLoader:
 
         for url in self.urls:
             try:
-                logger.debug(f"Fetching sensitive words from: {url}")
+                self.logger.debug(f"Fetching sensitive words from: {url}")
                 response = requests.get(url, timeout=self.timeout)
                 response.raise_for_status()
 
@@ -82,12 +84,12 @@ class SensitiveWordLoader:
                 content = response.text
                 words = self._parse_content(content)
                 all_words.update(words)
-                logger.debug(f"Loaded {len(words)} words from {url}")
+                self.logger.debug(f"Loaded {len(words)} words from {url}")
 
             except requests.RequestException as e:
-                logger.error(f"Failed to fetch from {url}: {e}")
+                self.logger.error(f"Failed to fetch from {url}: {e}")
             except Exception as e:
-                logger.error(f"Error processing {url}: {e}")
+                self.logger.error(f"Error processing {url}: {e}")
 
         return list(all_words)
 
@@ -138,10 +140,10 @@ class SensitiveWordLoader:
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
-            logger.debug(f"Saved {len(words)} words to cache: {self.cache_file}")
+            self.logger.debug(f"Saved {len(words)} words to cache: {self.cache_file}")
 
         except Exception as e:
-            logger.error(f"Failed to save cache: {e}")
+            self.logger.error(f"Failed to save cache: {e}")
 
     def _load_cache(self) -> Optional[List[str]]:
         """
@@ -152,7 +154,7 @@ class SensitiveWordLoader:
         """
         try:
             if not os.path.exists(self.cache_file):
-                logger.debug("Cache file does not exist")
+                self.logger.debug("Cache file does not exist")
                 return None
 
             with open(self.cache_file, 'r', encoding='utf-8') as f:
@@ -160,10 +162,10 @@ class SensitiveWordLoader:
 
             words = cache_data.get("words", [])
             last_update = cache_data.get("last_update", "unknown")
-            logger.debug(f"Loaded {len(words)} words from cache (last update: {last_update})")
+            self.logger.debug(f"Loaded {len(words)} words from cache (last update: {last_update})")
 
             return words
 
         except Exception as e:
-            logger.error(f"Failed to load cache: {e}")
+            self.logger.error(f"Failed to load cache: {e}")
             return None

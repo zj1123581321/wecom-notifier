@@ -33,9 +33,6 @@ ERRCODE_SUCCESS = 0  # 成功
 ERRCODE_WEBHOOK_INVALID = 93000  # webhook不存在
 ERRCODE_RATE_LIMIT = 45009  # 频率限制
 
-# 日志设置
-DEFAULT_LOG_LEVEL = "INFO"
-
 # Markdown语法标记
 MARKDOWN_LINK_PATTERN = r'\[([^\]]+)\]\(([^)]+)\)'  # [文字](url)
 MARKDOWN_IMAGE_PATTERN = r'!\[([^\]]*)\]\(([^)]+)\)'  # ![文字](url)
