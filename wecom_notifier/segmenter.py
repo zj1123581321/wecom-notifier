@@ -118,7 +118,7 @@ class MessageSegmenter:
             # 还原代码块
             para = self._restore_code_blocks(para, code_blocks)
 
-            # 检查是否是表格
+            # 检查是否是表格（段落开头就是表格）
             if self._is_table_start(para):
                 # 处理表格
                 table_paras = [para]
@@ -140,6 +140,43 @@ class MessageSegmenter:
                         current = seg
                     else:
                         current += '\n\n' + seg
+                continue
+
+            # 检查段落中间是否包含表格（表格前有文字的情况）
+            table_start_idx = self._find_table_in_paragraph(para)
+            if table_start_idx > 0:
+                # 分离表格前的文字和表格部分
+                lines = para.split('\n')
+                prefix_text = '\n'.join(lines[:table_start_idx])
+                table_content = '\n'.join(lines[table_start_idx:])
+
+                # 收集后续的表格行
+                i += 1
+                while i < len(paragraphs) and self._is_table_row(paragraphs[i]):
+                    table_content += '\n\n' + paragraphs[i]
+                    i += 1
+
+                table_content = self._restore_code_blocks(table_content, code_blocks)
+
+                # 先处理前缀文字
+                test_content = current + ('\n\n' if current else '') + prefix_text
+                if len(test_content.encode('utf-8')) > available_bytes:
+                    if current:
+                        segments.append(current)
+                    current = prefix_text
+                else:
+                    current = test_content
+
+                # 处理表格分段（保留表头）
+                table_segments = self._segment_table(table_content)
+                for seg in table_segments:
+                    if current and len((current + '\n' + seg).encode('utf-8')) > available_bytes:
+                        segments.append(current)
+                        current = seg
+                    elif not current:
+                        current = seg
+                    else:
+                        current += '\n' + seg
                 continue
 
             # 普通段落
@@ -264,6 +301,24 @@ class MessageSegmenter:
         # 第二行应该是分隔行（如 |---|---|）
         return (re.match(MARKDOWN_TABLE_ROW_PATTERN, lines[0].strip()) and
                 re.match(r'^\|[\s:-]+\|', lines[1].strip()))
+
+    def _find_table_in_paragraph(self, para: str) -> int:
+        """
+        在段落中查找表格的起始行索引
+
+        Args:
+            para: 段落内容
+
+        Returns:
+            int: 表格起始行索引，如果没找到返回 -1
+        """
+        lines = para.split('\n')
+        for i in range(len(lines) - 1):
+            # 检查第 i 行是否是表格标题行，第 i+1 行是否是分隔行
+            if (re.match(MARKDOWN_TABLE_ROW_PATTERN, lines[i].strip()) and
+                re.match(r'^\|[\s:-]+\|', lines[i + 1].strip())):
+                return i
+        return -1
 
     def _is_table_row(self, para: str) -> bool:
         """判断是否是表格行"""
