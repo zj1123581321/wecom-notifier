@@ -184,6 +184,18 @@ class MessageSegmenter:
 
             if len(test_content.encode('utf-8')) > available_bytes:
                 if current:
+                    # 检查 current 末尾是否有孤立标题，避免标题与正文分离
+                    content_without_heading, trailing_heading = self._extract_trailing_heading(current)
+
+                    if trailing_heading and content_without_heading:
+                        # 有末尾标题且前面有其他内容
+                        # 回溯：只保存标题之前的内容，标题留给下一段
+                        segments.append(content_without_heading)
+                        current = trailing_heading
+                        # 不增加 i，重新处理当前 para（让标题和正文有机会合并）
+                        continue
+
+                    # 没有需要回溯的标题，正常分段
                     segments.append(current)
                     current = ""
                     # 重新检查para本身是否超限
@@ -290,6 +302,40 @@ class MessageSegmenter:
         for i, block in enumerate(code_blocks):
             content = content.replace(f"__CODE_BLOCK_{i}__", block)
         return content
+
+    def _is_heading(self, text: str) -> bool:
+        """判断文本是否是 Markdown 标题（# 到 ###### 开头）"""
+        stripped = text.strip()
+        return bool(re.match(r'^#{1,6}\s+', stripped))
+
+    def _extract_trailing_heading(self, content: str) -> tuple:
+        """
+        提取内容末尾的标题
+
+        Args:
+            content: 当前累积的内容
+
+        Returns:
+            tuple: (不含标题的内容, 标题) 或 (原内容, None) 如果没有末尾标题
+        """
+        if not content:
+            return (content, None)
+
+        # 按段落分割（双换行）
+        parts = content.rsplit('\n\n', 1)
+
+        if len(parts) == 2:
+            before, last_para = parts
+            # 检查最后一个段落是否是标题
+            if self._is_heading(last_para):
+                return (before, last_para)
+        elif len(parts) == 1:
+            # 只有一个段落，检查它是否是标题
+            if self._is_heading(parts[0]):
+                # 整个内容就是一个标题，返回空和标题
+                return ('', parts[0])
+
+        return (content, None)
 
     def _is_table_start(self, para: str) -> bool:
         """判断是否是表格开始"""
