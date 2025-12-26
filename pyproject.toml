@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wecom-notifier"
-version = "0.2.0"
+version = "0.2.2"
 description = "企业微信机器人通知组件，支持频率控制、长文本分段等功能"
 readme = "README.md"
 license = { text = "MIT License" }
@@ -28,6 +28,9 @@ classifiers = [
 ]
 dependencies = [
     "requests>=2.25.0",
+    "loguru>=0.7.0",
+    "pypinyin>=0.44.0",
+    "pyahocorasick>=2.0.0",
 ]
 
 [project.optional-dependencies]
