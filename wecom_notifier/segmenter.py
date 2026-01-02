@@ -189,12 +189,17 @@ class MessageSegmenter:
 
                     if trailing_heading and content_without_heading:
                         # 有末尾标题且前面有其他内容
-                        # 回溯：只保存标题之前的内容，标题留给下一段
-                        segments.append(content_without_heading)
-                        current = trailing_heading
-                        # 不增加 i，重新处理当前 para（让标题和正文有机会合并）
-                        continue
-                    elif trailing_heading and not content_without_heading:
+                        # 检查 content_without_heading 是否也只包含标题
+                        # 如果是，不进行回溯，避免把标题单独分段
+                        if not self._is_only_headings(content_without_heading):
+                            # 前面有非标题内容，可以安全地回溯
+                            segments.append(content_without_heading)
+                            current = trailing_heading
+                            # 不增加 i，重新处理当前 para（让标题和正文有机会合并）
+                            continue
+                        # 否则 content_without_heading 也是标题，走下面的 elif 逻辑
+
+                    if trailing_heading:
                         # current 整体就是一个标题，尝试与 para 部分内容合并
                         # 避免标题单独成为一个分段
                         para_lines = para.split('\n')
@@ -366,6 +371,30 @@ class MessageSegmenter:
         """判断文本是否是 Markdown 标题（# 到 ###### 开头）"""
         stripped = text.strip()
         return bool(re.match(r'^#{1,6}\s+', stripped))
+
+    def _is_only_headings(self, content: str) -> bool:
+        """
+        判断内容是否只包含标题（没有其他正文内容）
+
+        Args:
+            content: 要检查的内容
+
+        Returns:
+            bool: 如果内容只包含标题行则返回 True
+        """
+        if not content or not content.strip():
+            return False
+
+        # 按段落分割
+        paragraphs = content.split('\n\n')
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            # 检查每个段落是否都是标题
+            if not self._is_heading(para):
+                return False
+        return True
 
     def _extract_trailing_heading(self, content: str) -> tuple:
         """
