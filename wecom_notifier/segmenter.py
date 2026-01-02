@@ -194,6 +194,65 @@ class MessageSegmenter:
                         current = trailing_heading
                         # 不增加 i，重新处理当前 para（让标题和正文有机会合并）
                         continue
+                    elif trailing_heading and not content_without_heading:
+                        # current 整体就是一个标题，尝试与 para 部分内容合并
+                        # 避免标题单独成为一个分段
+                        para_lines = para.split('\n')
+                        merged_content = current  # 从标题开始
+                        remaining_start = 0
+
+                        for idx, line in enumerate(para_lines):
+                            separator = '\n\n' if idx == 0 else '\n'
+                            test_merge = merged_content + separator + line
+                            if len(test_merge.encode('utf-8')) <= available_bytes:
+                                merged_content = test_merge
+                                remaining_start = idx + 1
+                            else:
+                                break
+
+                        if remaining_start > 0:
+                            # 成功合并了部分内容
+                            segments.append(merged_content)
+                            remaining_lines = para_lines[remaining_start:]
+                            current = '\n'.join(remaining_lines) if remaining_lines else ""
+                        else:
+                            # para 的第一行都无法完整合并（可能是一个很长的单行）
+                            # 尝试将第一行按字符拆分，让标题与部分内容合并
+                            first_line = para_lines[0]
+                            header_with_sep = current + '\n\n'
+                            available_for_content = available_bytes - len(header_with_sep.encode('utf-8'))
+
+                            if available_for_content > 0:
+                                # 将 first_line 按字符截断
+                                merged_chars = ""
+                                for char in first_line:
+                                    test = merged_chars + char
+                                    if len(test.encode('utf-8')) <= available_for_content:
+                                        merged_chars = test
+                                    else:
+                                        break
+
+                                if merged_chars:
+                                    # 成功合并了部分内容
+                                    segments.append(header_with_sep + merged_chars)
+                                    # 剩余内容
+                                    remaining_first_line = first_line[len(merged_chars):]
+                                    if remaining_first_line:
+                                        remaining_lines = [remaining_first_line] + para_lines[1:]
+                                    else:
+                                        remaining_lines = para_lines[1:]
+                                    current = '\n'.join(remaining_lines) if remaining_lines else ""
+                                else:
+                                    # 极端情况：标题本身接近限制，无法合并任何字符
+                                    segments.append(current)
+                                    current = para
+                            else:
+                                # 极端情况：标题本身超过限制
+                                segments.append(current)
+                                current = para
+
+                        i += 1
+                        continue
 
                     # 没有需要回溯的标题，正常分段
                     segments.append(current)
