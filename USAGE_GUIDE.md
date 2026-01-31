@@ -1,10 +1,10 @@
-# 企业微信通知器使用指南
+# 多平台通知器使用指南
 
 ## 📌 重要提示
 
 > **⚠️ 使用前必读**
 >
-> - ✅ **推荐**：全局使用单个 `WeComNotifier` 实例
+> - ✅ **推荐**：全局使用单个通知器实例（`WeComNotifier` 或 `FeishuNotifier`）
 > - ❌ **避免**：频繁创建多个实例（会导致频控失效、资源浪费）
 > - 📖 详见下方"最佳实践"章节
 
@@ -16,7 +16,7 @@
 pip install -U wecom-notifier
 ```
 
-### 最简单的例子
+### 企业微信
 
 ```python
 from wecom_notifier import WeComNotifier
@@ -35,6 +35,45 @@ if result.is_success():
     print("发送成功！")
 else:
     print(f"发送失败: {result.error}")
+```
+
+### 飞书（v0.3.0+）
+
+```python
+from wecom_notifier import FeishuNotifier
+
+# 1. 初始化
+notifier = FeishuNotifier()
+
+# 2. 发送文本消息
+result = notifier.send_text(
+    webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR-KEY",
+    content="Hello 飞书！",
+    mention_all=True  # @所有人
+)
+result.wait()
+
+# 3. 发送卡片消息（支持 Markdown）
+result = notifier.send_card(
+    webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR-KEY",
+    content="## 项目上线通知\n\n- 版本: v1.0.0\n- 状态: 成功",
+    title="部署通知",
+    template="green"  # 绿色卡片
+)
+result.wait()
+```
+
+### 飞书签名校验
+
+如果飞书机器人启用了签名校验：
+
+```python
+notifier = FeishuNotifier(secret="your-secret-key")
+
+result = notifier.send_text(
+    webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR-KEY",
+    content="带签名的消息"
+)
 ```
 
 ## 📚 功能详解
@@ -368,7 +407,89 @@ notifier = WeComNotifier(
 
 **注意**：v0.2.0+ 已移除 `log_level` 参数，日志配置请参考下方"日志配置"章节。
 
-### 10. 日志配置
+### 10. 飞书通知器（v0.3.0+）
+
+#### 基础文本消息
+
+```python
+from wecom_notifier import FeishuNotifier
+
+notifier = FeishuNotifier()
+
+# 发送文本
+result = notifier.send_text(
+    webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR-KEY",
+    content="这是一条飞书消息"
+)
+result.wait()
+```
+
+#### 卡片消息（支持 Markdown）
+
+```python
+# 发送卡片消息
+result = notifier.send_card(
+    webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/YOUR-KEY",
+    content="""## 项目部署通知
+
+- **项目**: MyApp
+- **版本**: v1.2.0
+- **状态**: 部署成功
+
+| 环境 | 状态 |
+|------|------|
+| 测试 | ✅ |
+| 生产 | ✅ |
+""",
+    title="部署通知",
+    template="green"  # 卡片颜色
+)
+result.wait()
+```
+
+**卡片模板颜色**: blue, wathet, turquoise, green, yellow, orange, red, carmine, violet, purple, indigo, grey
+
+#### @功能
+
+```python
+# @所有人
+result = notifier.send_text(
+    webhook_url=FEISHU_URL,
+    content="紧急通知！",
+    mention_all=True
+)
+
+# @特定用户（需要用户的 open_id 或 user_id）
+result = notifier.send_text(
+    webhook_url=FEISHU_URL,
+    content="任务分配",
+    mentions=["ou_xxx", "ou_yyy"]
+)
+```
+
+#### 签名校验
+
+如果飞书机器人启用了签名校验：
+
+```python
+notifier = FeishuNotifier(secret="your-secret-key")
+
+# 发送时会自动计算签名
+result = notifier.send_text(
+    webhook_url=FEISHU_URL,
+    content="带签名的消息"
+)
+```
+
+#### 飞书频率限制
+
+飞书有双层频率限制：
+- **每分钟限制**: 100 条消息
+- **每秒限制**: 5 条消息
+
+`FeishuNotifier` 内置 `DualRateLimiter` 自动处理这两个限制。
+
+### 12. 日志配置
 
 **重要变更（v0.2.0+）**：本库不再自动配置日志，由用户完全控制。
 
@@ -427,7 +548,7 @@ setup_logger(
 - [日志配置指南](doc/logging_configuration_guide.md) - 完整的日志配置文档
 - [README.md - 日志配置](README.md#日志配置) - 快速参考
 
-### 11. 内容审核（可选功能）
+### 13. 内容审核（可选功能）
 
 **适用场景**：需要过滤敏感词的消息发送
 
@@ -933,6 +1054,114 @@ if moderate_community_post(post):
 else:
     # 通知用户修改
     notify_user_to_modify(post)
+```
+
+### 场景7：飞书项目通知（v0.3.0+）
+
+```python
+from wecom_notifier import FeishuNotifier
+
+def send_project_notification(project_data):
+    """发送项目进度通知到飞书"""
+
+    notifier = FeishuNotifier()
+
+    # 构建卡片内容
+    content = f"""## {project_data['name']} 进度更新
+
+**当前阶段**: {project_data['phase']}
+**完成度**: {project_data['progress']}%
+**负责人**: {project_data['owner']}
+
+### 里程碑
+
+| 节点 | 计划时间 | 状态 |
+|------|----------|------|
+| 需求评审 | 2025-01-15 | ✅ |
+| 开发完成 | 2025-02-01 | ✅ |
+| 测试完成 | 2025-02-15 | 🔄 |
+| 上线发布 | 2025-02-28 | ⏳ |
+
+---
+更新时间: {project_data['update_time']}
+"""
+
+    # 发送卡片
+    result = notifier.send_card(
+        webhook_url=FEISHU_WEBHOOK,
+        content=content,
+        title="项目进度通知",
+        template="blue" if project_data['progress'] < 100 else "green",
+        async_send=False
+    )
+
+    return result.is_success()
+
+# 使用示例
+send_project_notification({
+    'name': 'WeComNotifier v0.3.0',
+    'phase': '测试阶段',
+    'progress': 80,
+    'owner': '张三',
+    'update_time': '2025-01-31 16:00'
+})
+```
+
+### 场景8：多平台同时通知
+
+```python
+from wecom_notifier import WeComNotifier, FeishuNotifier
+
+class MultiPlatformNotifier:
+    """多平台通知器"""
+
+    def __init__(self, wecom_url, feishu_url):
+        self.wecom = WeComNotifier()
+        self.feishu = FeishuNotifier()
+        self.wecom_url = wecom_url
+        self.feishu_url = feishu_url
+
+    def send_alert(self, title, message, mention_all=False):
+        """同时发送到企微和飞书"""
+        results = []
+
+        # 发送到企微
+        wecom_result = self.wecom.send_markdown(
+            webhook_url=self.wecom_url,
+            content=f"## {title}\n\n{message}",
+            mention_all=mention_all,
+            async_send=True
+        )
+        results.append(('wecom', wecom_result))
+
+        # 发送到飞书
+        feishu_result = self.feishu.send_card(
+            webhook_url=self.feishu_url,
+            content=message,
+            title=title,
+            template="red" if mention_all else "blue",
+            async_send=True
+        )
+        results.append(('feishu', feishu_result))
+
+        # 等待所有完成
+        for platform, result in results:
+            result.wait()
+            print(f"{platform}: {'成功' if result.is_success() else result.error}")
+
+        return all(r.is_success() for _, r in results)
+
+# 使用示例
+notifier = MultiPlatformNotifier(
+    wecom_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx",
+    feishu_url="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+)
+
+notifier.send_alert(
+    title="系统告警",
+    message="CPU 使用率超过 90%，请及时处理！",
+    mention_all=True
+)
 ```
 
 ## 💡 最佳实践
