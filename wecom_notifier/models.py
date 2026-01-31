@@ -1,51 +1,11 @@
 """
 数据模型 - 向后兼容模块
 
-此模块保持向后兼容，提供企微特定的 Message 类
+此模块保持向后兼容：
+- Message: 企微特定实现，从 platforms.wecom.models 导入
+- SendResult, SegmentInfo: 通用模型，从 core.models 导入
 """
-import threading
-import uuid
-from typing import Optional, List, Any
+from wecom_notifier.core.models import SendResult, SegmentInfo
+from wecom_notifier.platforms.wecom.models import Message
 
-from .core.models import SendResult, SegmentInfo
-from .constants import (
-    MSG_TYPE_TEXT,
-    MSG_TYPE_MARKDOWN_V2,
-    MSG_TYPE_IMAGE,
-    DEFAULT_SEGMENT_INTERVAL
-)
-
-
-class Message:
-    """
-    消息对象 - 企微特定实现
-
-    保持与原有 Message 类完全兼容的接口
-    """
-
-    def __init__(
-            self,
-            content: Any,
-            msg_type: str,
-            mention_all: bool = False,
-            mentioned_list: Optional[List[str]] = None,
-            mentioned_mobile_list: Optional[List[str]] = None,
-            segment_interval: int = DEFAULT_SEGMENT_INTERVAL,
-            **kwargs
-    ):
-        self.id = str(uuid.uuid4())
-        self.content = content
-        self.msg_type = msg_type
-        self.mention_all = mention_all
-        self.mentioned_list = mentioned_list or []
-        self.mentioned_mobile_list = mentioned_mobile_list or []
-        self.segment_interval = segment_interval
-        self.extra_params = kwargs
-
-    def needs_mention_all_workaround(self) -> bool:
-        """是否需要额外发送@all消息（针对markdown_v2和image）"""
-        return self.mention_all and self.msg_type in [MSG_TYPE_MARKDOWN_V2, MSG_TYPE_IMAGE]
-
-
-# 重新导出
 __all__ = ["Message", "SendResult", "SegmentInfo"]

@@ -1,5 +1,5 @@
 """
-Webhook池 - 管理多个webhook的负载均衡和发送
+Webhook池 - 向后兼容模块
 
 此模块保持向后兼容，实际实现已迁移到:
 - core/pool_base.py (通用基类)
@@ -7,14 +7,14 @@ Webhook池 - 管理多个webhook的负载均衡和发送
 """
 from typing import List, Optional, TYPE_CHECKING
 
-from .platforms.wecom.pool import WeComWebhookPool
-from .core.pool_base import AllWebhooksUnavailableError
-from .segmenter import MessageSegmenter
-from .sender import Sender
-from .webhook_resource import WebhookResource
+from wecom_notifier.platforms.wecom.pool import WeComWebhookPool
+from wecom_notifier.core.pool_base import AllWebhooksUnavailableError
+from wecom_notifier.core.segmenter import MessageSegmenter
+from wecom_notifier.platforms.wecom.sender import Sender
+from wecom_notifier.platforms.wecom.resource import WebhookResource
 
 if TYPE_CHECKING:
-    from .content_moderator import ContentModerator
+    from wecom_notifier.core.moderation import ContentModerator
 
 
 # 向后兼容：重新导出异常

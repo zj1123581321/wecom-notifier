@@ -7,13 +7,14 @@ from typing import List, Optional, Set, Tuple, Any, TYPE_CHECKING
 
 from wecom_notifier.core.pool_base import WebhookPoolBase
 from wecom_notifier.core.segmenter import MessageSegmenter
-from wecom_notifier.core.models import Message, SegmentInfo
-from wecom_notifier.constants import MSG_TYPE_TEXT, MSG_TYPE_MARKDOWN_V2, MSG_TYPE_IMAGE
+from wecom_notifier.core.models import SegmentInfo
+from wecom_notifier.platforms.wecom.constants import MSG_TYPE_TEXT, MSG_TYPE_MARKDOWN_V2, MSG_TYPE_IMAGE
 from wecom_notifier.platforms.wecom.adapter import WeComSenderAdapter, WeComMessageConverter
+from wecom_notifier.platforms.wecom.models import Message
 
 if TYPE_CHECKING:
-    from wecom_notifier.webhook_resource import WebhookResource
-    from wecom_notifier.sender import Sender
+    from wecom_notifier.platforms.wecom.resource import WebhookResource
+    from wecom_notifier.platforms.wecom.sender import Sender
     from wecom_notifier.core.moderation import ContentModerator
 
 
