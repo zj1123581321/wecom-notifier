@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wecom-notifier"
-version = "0.2.3"
-description = "企业微信机器人通知组件，支持频率控制、长文本分段等功能"
+version = "0.3.0"
+description = "多平台机器人通知组件，支持企业微信和飞书，提供频率控制、长文本分段、内容审核等功能"
 readme = "README.md"
 license = { text = "MIT License" }
 requires-python = ">=3.7"
 authors = [
     {name = "ZLX", email = "zj1123581321@gmail.com"}
 ]
-keywords = ["wecom", "wechat", "enterprise-wechat", "robot", "notification", "webhook"]
+keywords = ["wecom", "wechat", "enterprise-wechat", "feishu", "lark", "robot", "notification", "webhook"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -29,11 +29,13 @@ classifiers = [
 dependencies = [
     "requests>=2.25.0",
     "loguru>=0.7.0",
-    "pypinyin>=0.44.0",
-    "pyahocorasick>=2.0.0",
 ]
 
 [project.optional-dependencies]
+moderation = [
+    "pypinyin>=0.44.0",
+    "pyahocorasick>=2.0.0",
+]
 dev = [
     "pytest>=6.0",
     "pytest-cov>=2.0",
@@ -48,6 +50,9 @@ dev = [
 "Documentation" = "https://github.com/zj1123581321/wecom-notifier#readme"
 "Changelog" = "https://github.com/zj1123581321/wecom-notifier/blob/main/CHANGELOG.md"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["wecom_notifier*"]
+
 [tool.setuptools]
-packages = ["wecom_notifier"]
 license-files = ["LICENSE"]

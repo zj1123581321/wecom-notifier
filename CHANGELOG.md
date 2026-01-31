@@ -7,6 +7,117 @@
 
 ---
 
+## [0.3.0] - 2026-01-31
+
+### ✨ 新增（Added）
+
+#### 飞书 (Feishu/Lark) 平台支持
+
+新增 `FeishuNotifier` 类，提供完整的飞书机器人通知功能：
+
+```python
+from wecom_notifier import FeishuNotifier
+
+notifier = FeishuNotifier(webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/xxx")
+
+# 发送文本消息
+notifier.send_text("Hello, Feishu!")
+
+# 发送富文本消息
+notifier.send_rich_text(
+    title="通知标题",
+    content=[
+        [{"tag": "text", "text": "第一行内容"}],
+        [{"tag": "a", "text": "链接", "href": "https://example.com"}]
+    ]
+)
+
+# 发送卡片消息
+notifier.send_card(
+    title="卡片标题",
+    elements=[
+        {"tag": "div", "text": {"content": "卡片内容", "tag": "plain_text"}}
+    ]
+)
+```
+
+**功能特性**：
+- 支持文本消息 (text)
+- 支持富文本消息 (post)
+- 支持交互式卡片消息 (interactive)
+- 支持图片消息 (image)
+- 支持 @ 用户（`@all`、手机号、`open_id`、`user_id`）
+- 支持签名验证
+- 双层频率限制（100次/分钟 + 5次/秒）
+- 长文本自动分段
+
+#### 多平台架构
+
+项目重构为多平台架构：
+
+```
+wecom_notifier/
+├── core/              # 共享核心模块
+│   ├── rate_limiter.py    # 通用频率限制器
+│   ├── segmenter.py       # 通用消息分段器
+│   ├── pool_base.py       # Webhook池基类
+│   └── moderation/        # 内容审核模块
+├── platforms/         # 平台特定实现
+│   ├── wecom/            # 企业微信
+│   └── feishu/           # 飞书
+└── *.py               # 向后兼容层
+```
+
+**核心抽象**：
+- `RateLimiter` - 通用频率限制器，支持自定义限制策略
+- `MessageSegmenter` - 消息分段器，支持 text/markdown 分段
+- `WebhookPoolBase` - Webhook 池抽象基类
+
+#### 可选的内容审核依赖
+
+内容审核功能现在是可选的：
+
+```bash
+# 基础安装（不含审核功能）
+pip install wecom-notifier
+
+# 安装审核功能
+pip install wecom-notifier[moderation]
+```
+
+使用审核功能时，如果缺少依赖会给出友好提示：
+```
+ConfigurationError: Content moderation requires additional dependencies.
+Install with: pip install wecom-notifier[moderation]
+Missing packages: pyahocorasick, pypinyin
+```
+
+### 🔄 变更（Changed）
+
+#### 依赖优化
+
+- `pypinyin` 和 `pyahocorasick` 从必需依赖移至可选依赖 `[moderation]`
+- 基础安装更轻量，仅需 `requests` 和 `loguru`
+
+#### 项目描述更新
+
+- 项目描述更新为"多平台机器人通知组件"
+- 添加飞书相关关键词：`feishu`、`lark`
+
+### 📚 文档（Documentation）
+
+- README.md 新增飞书快速入门和 API 参考
+- USAGE_GUIDE.md 新增飞书章节（第10节）
+- 新增多平台同时通知示例
+
+### ✅ 兼容性（Compatibility）
+
+- **完全向后兼容**：所有现有的导入路径和 API 保持不变
+- 原有代码无需任何修改即可在 0.3.0 上运行
+- `WeComNotifier` 的所有功能和参数保持一致
+
+---
+
 ## [0.2.3] - 2026-01-02
 
 ### 🐛 修复（Fixed）
