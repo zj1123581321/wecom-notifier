@@ -1,9 +1,13 @@
 """
-数据模型
+数据模型 - 向后兼容模块
+
+此模块保持向后兼容，提供企微特定的 Message 类
 """
 import threading
 import uuid
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any
+
+from .core.models import SendResult, SegmentInfo
 from .constants import (
     MSG_TYPE_TEXT,
     MSG_TYPE_MARKDOWN_V2,
@@ -13,7 +17,11 @@ from .constants import (
 
 
 class Message:
-    """消息对象"""
+    """
+    消息对象 - 企微特定实现
+
+    保持与原有 Message 类完全兼容的接口
+    """
 
     def __init__(
             self,
@@ -39,80 +47,5 @@ class Message:
         return self.mention_all and self.msg_type in [MSG_TYPE_MARKDOWN_V2, MSG_TYPE_IMAGE]
 
 
-class SendResult:
-    """发送结果对象"""
-
-    def __init__(self, message_id: str):
-        self.message_id = message_id
-        self.success: Optional[bool] = None  # None=进行中, True=成功, False=失败
-        self.error: Optional[str] = None
-        self._event = threading.Event()
-
-        # 池模式的额外信息（可选）
-        self.used_webhooks: List[str] = []  # 实际使用的webhook URL列表
-        self.segment_count: int = 0         # 分段数量
-
-    def wait(self, timeout: Optional[float] = None) -> bool:
-        """
-        等待发送完成
-
-        Args:
-            timeout: 超时时间（秒），None表示无限等待
-
-        Returns:
-            bool: 是否在超时前完成
-        """
-        return self._event.wait(timeout)
-
-    def is_success(self) -> bool:
-        """是否发送成功"""
-        return self.success is True
-
-    def mark_success(self):
-        """标记为成功"""
-        self.success = True
-        self.error = None
-        self._event.set()
-
-    def mark_failed(self, error: str):
-        """标记为失败"""
-        self.success = False
-        self.error = error
-        self._event.set()
-
-    def __repr__(self):
-        status = "pending" if self.success is None else ("success" if self.success else "failed")
-        return f"<SendResult message_id={self.message_id} status={status} error={self.error}>"
-
-
-class SegmentInfo:
-    """分段信息"""
-
-    def __init__(
-        self,
-        content: str,
-        is_first: bool = False,
-        is_last: bool = False,
-        page_number: Optional[int] = None,
-        total_pages: Optional[int] = None
-    ):
-        self.content = content
-        self.is_first = is_first
-        self.is_last = is_last
-        self.page_number = page_number  # 当前页码（从1开始），None表示不分页
-        self.total_pages = total_pages  # 总页数，None表示不分页
-
-    def __repr__(self):
-        flags = []
-        if self.is_first:
-            flags.append("first")
-        if self.is_last:
-            flags.append("last")
-        flag_str = f" ({','.join(flags)})" if flags else ""
-
-        # 添加页码信息
-        page_info = ""
-        if self.page_number is not None and self.total_pages is not None:
-            page_info = f" page={self.page_number}/{self.total_pages}"
-
-        return f"<SegmentInfo length={len(self.content)}{flag_str}{page_info}>"
+# 重新导出
+__all__ = ["Message", "SendResult", "SegmentInfo"]
