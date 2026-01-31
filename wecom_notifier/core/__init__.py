@@ -3,6 +3,7 @@ wecom_notifier.core - 核心模块
 
 此模块包含平台无关的核心功能：
 - 协议定义 (SenderProtocol, RateLimiterProtocol, MessageConverterProtocol)
+- Webhook 池基类 (WebhookPoolBase)
 - 频率控制 (RateLimiter)
 - 消息分段 (MessageSegmenter)
 - 数据模型 (Message, SendResult, SegmentInfo)
@@ -15,6 +16,7 @@ from wecom_notifier.core.protocols import (
     RateLimiterProtocol,
     MessageConverterProtocol,
 )
+from wecom_notifier.core.pool_base import WebhookPoolBase, AllWebhooksUnavailableError
 from wecom_notifier.core.rate_limiter import RateLimiter
 from wecom_notifier.core.segmenter import MessageSegmenter
 from wecom_notifier.core.models import Message, SendResult, SegmentInfo
@@ -32,6 +34,9 @@ __all__ = [
     "SenderProtocol",
     "RateLimiterProtocol",
     "MessageConverterProtocol",
+    # Webhook 池基类
+    "WebhookPoolBase",
+    "AllWebhooksUnavailableError",
     # 频率控制
     "RateLimiter",
     # 分段器
