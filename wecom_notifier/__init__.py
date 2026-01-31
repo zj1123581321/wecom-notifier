@@ -3,10 +3,10 @@
 
 一个功能完善的通知组件，支持：
 - 企业微信 (WeComNotifier)
-- 飞书 (FeishuNotifier) [即将支持]
+- 飞书 (FeishuNotifier)
 
 功能特性：
-- 多种消息格式（text、markdown_v2、image）
+- 多种消息格式（text、markdown、image、card）
 - 频率控制
 - 长文本自动分段
 - 同步/异步发送
@@ -22,6 +22,9 @@
 
 # 企业微信通知器（主要入口）
 from .notifier import WeComNotifier
+
+# 飞书通知器
+from .platforms.feishu import FeishuNotifier
 
 # 数据模型
 from .models import Message, SendResult, SegmentInfo
@@ -47,11 +50,12 @@ from .logger import setup_logger, disable_logger, enable_logger, get_logger
 # 核心模块（新增导出）
 from .core import RateLimiter, MessageSegmenter
 
-__version__ = "0.2.3"
+__version__ = "0.3.0"
 
 __all__ = [
     # 主要入口
     "WeComNotifier",
+    "FeishuNotifier",
 
     # 数据模型
     "Message",
