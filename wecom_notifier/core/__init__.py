@@ -2,6 +2,7 @@
 wecom_notifier.core - 核心模块
 
 此模块包含平台无关的核心功能：
+- 协议定义 (SenderProtocol, RateLimiterProtocol, MessageConverterProtocol)
 - 频率控制 (RateLimiter)
 - 消息分段 (MessageSegmenter)
 - 数据模型 (Message, SendResult, SegmentInfo)
@@ -9,6 +10,11 @@ wecom_notifier.core - 核心模块
 - 核心常量和异常
 """
 
+from wecom_notifier.core.protocols import (
+    SenderProtocol,
+    RateLimiterProtocol,
+    MessageConverterProtocol,
+)
 from wecom_notifier.core.rate_limiter import RateLimiter
 from wecom_notifier.core.segmenter import MessageSegmenter
 from wecom_notifier.core.models import Message, SendResult, SegmentInfo
@@ -22,6 +28,10 @@ from wecom_notifier.core.exceptions import (
 )
 
 __all__ = [
+    # 协议
+    "SenderProtocol",
+    "RateLimiterProtocol",
+    "MessageConverterProtocol",
     # 频率控制
     "RateLimiter",
     # 分段器
