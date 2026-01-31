@@ -204,6 +204,17 @@ class FeishuNotifier:
                 )
             return self._managers[webhook_url]
 
+    def stop_all(self):
+        """停止所有 Webhook 管理器"""
+        with self._managers_lock:
+            for manager in self._managers.values():
+                manager.stop()
+
+    def __del__(self):
+        """析构函数"""
+        if hasattr(self, '_managers'):
+            self.stop_all()
+
 
 class _FeishuWebhookManager:
     """

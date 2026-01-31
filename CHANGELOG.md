@@ -7,6 +7,38 @@
 
 ---
 
+## [0.3.1] - 2026-01-31
+
+### 🐛 修复（Fixed）
+
+#### 修复 FeishuNotifier 退出时未正确停止工作线程的问题
+
+**问题描述**：
+- `FeishuNotifier` 缺少 `stop_all()` 方法和 `__del__` 析构函数
+- 程序退出时，飞书的 `_FeishuWebhookManager` 工作线程无法正确停止
+- 与 `WeComNotifier` 行为不一致（企微有 "Stopping WebhookManager for..." 日志，飞书没有）
+
+**修复内容**：
+- 在 `FeishuNotifier` 类中添加 `stop_all()` 方法
+- 添加 `__del__` 析构函数，在对象销毁时自动调用 `stop_all()`
+- 现在程序退出时会正确输出 "Stopping FeishuWebhookManager for..." 日志
+
+**技术细节**：
+```python
+def stop_all(self):
+    """停止所有 Webhook 管理器"""
+    with self._managers_lock:
+        for manager in self._managers.values():
+            manager.stop()
+
+def __del__(self):
+    """析构函数"""
+    if hasattr(self, '_managers'):
+        self.stop_all()
+```
+
+---
+
 ## [0.3.0] - 2026-01-31
 
 ### ✨ 新增（Added）
