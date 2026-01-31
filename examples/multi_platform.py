@@ -15,7 +15,7 @@ def notify_all(title: str, content: str, mention_all: bool = False):
 
     Args:
         title: 通知标题
-        content: 通知内容
+        content: 通知内容（Markdown格式）
         mention_all: 是否@所有人
     """
     results = {}
@@ -31,26 +31,12 @@ def notify_all(title: str, content: str, mention_all: bool = False):
     results['wecom'] = wecom_result
 
     # 发送到飞书
-    feishu = FeishuNotifier(
-        webhook_url=FEISHU_WEBHOOK,
-        secret=FEISHU_SECRET
-    )
-
-    # 构建飞书卡片
-    elements = [
-        {
-            "tag": "div",
-            "text": {
-                "content": content,
-                "tag": "lark_md"
-            }
-        }
-    ]
-
+    feishu = FeishuNotifier(secret=FEISHU_SECRET)
     feishu_result = feishu.send_card(
+        FEISHU_WEBHOOK,
+        content,
         title=title,
-        elements=elements,
-        at_all=mention_all,
+        template="blue",
         async_send=True
     )
     results['feishu'] = feishu_result
@@ -156,21 +142,18 @@ class MultiPlatformNotifier:
         feishu_url: str = None,
         feishu_secret: str = None
     ):
-        self.platforms = {}
+        self.wecom_url = wecom_url
+        self.feishu_url = feishu_url
 
         if wecom_url:
-            self.platforms['wecom'] = {
-                'notifier': WeComNotifier(),
-                'url': wecom_url
-            }
+            self.wecom = WeComNotifier()
+        else:
+            self.wecom = None
 
         if feishu_url:
-            self.platforms['feishu'] = {
-                'notifier': FeishuNotifier(
-                    webhook_url=feishu_url,
-                    secret=feishu_secret
-                )
-            }
+            self.feishu = FeishuNotifier(secret=feishu_secret)
+        else:
+            self.feishu = None
 
     def notify(
         self,
@@ -194,28 +177,21 @@ class MultiPlatformNotifier:
         results = {}
 
         # 企业微信
-        if 'wecom' in self.platforms:
-            wecom = self.platforms['wecom']
-            results['wecom'] = wecom['notifier'].send_markdown(
-                webhook_url=wecom['url'],
+        if self.wecom and self.wecom_url:
+            results['wecom'] = self.wecom.send_markdown(
+                webhook_url=self.wecom_url,
                 content=f"# {title}\n\n{content}",
                 mention_all=mention_all,
                 async_send=async_send
             )
 
         # 飞书
-        if 'feishu' in self.platforms:
-            feishu = self.platforms['feishu']['notifier']
-            elements = [
-                {
-                    "tag": "div",
-                    "text": {"content": content, "tag": "lark_md"}
-                }
-            ]
-            results['feishu'] = feishu.send_card(
+        if self.feishu and self.feishu_url:
+            results['feishu'] = self.feishu.send_card(
+                self.feishu_url,
+                content,
                 title=title,
-                elements=elements,
-                at_all=mention_all,
+                template="blue",
                 async_send=async_send
             )
 
